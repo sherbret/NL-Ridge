@@ -31,7 +31,7 @@ The average PSNR (dB) results of different methods on various datasets corrupted
 
 The average PSNR (dB) results of NL-Ridge on Set12 dataset corrupted with additive white Gaussian noise.
 
-| $\sigma$ |  2 | 5 | 10 | 15 | 20 | 25 | 35 | 50 |
+| sigma |  2 | 5 | 10 | 15 | 20 | 25 | 35 | 50 |
 |---------|:-------:|:--------:|:--------:|:--------:|:--------:|:--------:|:--------:|:--------:|
 |  PSNR | 43.81 | 38.19 | 34.50 | 32.46 | 31.06 | 30.00 | 28.41 |  26.72 |
 
