@@ -50,7 +50,7 @@ Running time (in seconds) of different methods on images of size 256x256. Run ti
 
 To denoise an image with NL-Ridge (remove ``--add_noise`` if it is already noisy):
 ```
-python ./demo.py --sigma 15 --add_noise --in ./datasets/Set12/09.png --out ./out/denoised.png
+python ./demo.py --sigma 15 --add_noise --in ./datasets/Set12/09.png --out ./denoised.png
 ```
 
 ## Acknowledgements
