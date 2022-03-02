@@ -12,7 +12,7 @@ Here is the list of libraries you need to install to execute the code:
 ## Results
 
 ### Gray denoising
-The average PSNR (dB) results of different methods on various datasets corrupted with Gaussian noise ($\sigma=15$ and $25$). Best performance among each category (unsupervised or supervised$\ast$) is in bold.
+The average PSNR (dB) results of different methods on various datasets corrupted with Gaussian noise (sigma=15 and 25). Best performance among each category (unsupervised or supervised*) is in bold.
 
 | Methods | Set12 | BSD68 | Urban100 |
 |---------|:-------:|:--------:|:--------:|
@@ -23,9 +23,9 @@ The average PSNR (dB) results of different methods on various datasets corrupted
 | DIP  |   30.12 / 27.54 | 28.83 / 26.59  |  - / - |
 | Noise2Self  |   31.01 / 28.64 | 29.46 / 27.72 |  - / - |
 | Self2Self  |   32.07 / **30.02** | 30.62 / 28.60 |  - / - |
-|DnCNN$\ast$| **32.86** / **30.44** | **31.73** / **29.23** | 32.68 / 29.97|
-|FFDnet$\ast$  |   32.75 / 30.43 | 31.63 / 29.19 | 32.43 / 29.92|
-| LIDIA$\ast$  |  32.85 / 30.41 |  31.62 / 29.11 | **32.80** / **30.12** |
+|DnCNN*| **32.86** / **30.44** | **31.73** / **29.23** | 32.68 / 29.97|
+|FFDnet*  |   32.75 / 30.43 | 31.63 / 29.19 | 32.43 / 29.92|
+| LIDIA*  |  32.85 / 30.41 |  31.62 / 29.11 | **32.80** / **30.12** |
 
 
 
