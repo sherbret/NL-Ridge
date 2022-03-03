@@ -9,6 +9,16 @@ Here is the list of libraries you need to install to execute the code:
 * Numpy 1.21.2
 * PIL 8.2.0
 
+## Install
+
+To install in an environment using pip:
+
+```
+python -m venv .nlridge_env
+source .nlridge_env/bin/activate
+pip insall /path/to/NL-Ridge
+```
+
 ## Results
 
 ### Gray denoising
