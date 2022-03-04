@@ -16,7 +16,14 @@ To install in an environment using pip:
 ```
 python -m venv .nlridge_env
 source .nlridge_env/bin/activate
-pip insall /path/to/NL-Ridge
+pip install /path/to/NL-Ridge
+```
+
+## Demo
+
+To denoise an image with NL-Ridge (remove ``--add_noise`` if it is already noisy):
+```
+python ./demo.py --sigma 15 --add_noise --in ./datasets/Set12/09.png --out ./denoised.png
 ```
 
 ## Results
@@ -38,7 +45,6 @@ The average PSNR (dB) results of different methods on various datasets corrupted
 | LIDIA*  |  32.85 / 30.41 |  31.62 / 29.11 | **32.80** / **30.12** |
 
 
-
 The average PSNR (dB) results of NL-Ridge on Set12 dataset corrupted with additive white Gaussian noise.
 
 | sigma |  2 | 5 | 10 | 15 | 20 | 25 | 35 | 50 |
@@ -56,16 +62,8 @@ Running time (in seconds) of different methods on images of size 256x256. Run ti
 |---------|:-------:|:--------:|:--------:|:--------:|:--------:|:--------:|
 |  CPU | 1.68 | 0.21 | 2.37 | n/a | 0.87 | 21.08|
 |  GPU | n/a | n/a | 0.162 | 3877 | 0.007 | 1.184|
-## Demo
 
-To denoise an image with NL-Ridge (remove ``--add_noise`` if it is already noisy):
-```
-python ./demo.py --sigma 15 --add_noise --in ./datasets/Set12/09.png --out ./denoised.png
-```
 
 ## Acknowledgements
 
 This work was supported by Bpifrance agency (funding) through the LiChIE contract. Computations  were performed on the Inria Rennes computing grid facilities partly funded by France-BioImaging infrastructure (French National Research Agency - ANR-10-INBS-04-07, “Investments for the future”).
-
- 
-
