@@ -51,7 +51,7 @@ if args.add_noise:
 	print("PSNR:", round(10*np.log10(255**2 / np.mean((img_denoised - img)**2)), 2), "dB")
 
 # Saving
-imsave(args.img_to_save, img_denoised.astype(np.uint8))
+imsave(args.img_to_save, np.round(img_denoised).astype(np.uint8))
 
 
 
