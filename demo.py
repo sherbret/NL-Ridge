@@ -7,7 +7,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from PIL import Image, ImageOps
+from skimage.io import imread, imsave
 import argparse
 from nlridge import NLRidge
 import time
@@ -21,9 +21,8 @@ args = parser.parse_args()
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-im = Image.open(args.img_to_denoise)
-im = ImageOps.grayscale(im)
-img = np.array(im) 
+# Reading
+img = imread(args.img_to_denoise, as_gray=True)
 
 if args.add_noise:
 	img_noisy = img + args.sigma * np.random.randn(*img.shape)
@@ -53,8 +52,8 @@ if args.add_noise:
 	print("PSNR:", round(10*np.log10(255**2 / np.mean((img_denoised - img)**2)), 2), "dB")
 
 # Saving
-im = Image.fromarray(img_denoised.astype(np.uint8))
-im.save(args.img_to_save)
+imsave(args.img_to_save, img_denoised.astype(np.uint8))
+
 
 
 
