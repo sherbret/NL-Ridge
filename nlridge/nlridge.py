@@ -95,7 +95,7 @@ class NLRidge(nn.Module):
         xx = nn.functional.fold(X_sum, output_size=(H+w-1+p-1, W+w-1+p-1), kernel_size=p)
         divisor = nn.functional.fold(divisor, output_size=(H+w-1+p-1, W+w-1+p-1), kernel_size=p)
         den_enlarged = xx / divisor
-        r = w//2+p//2
+        r = w//2 + p//2
         den = den_enlarged[: , :, r:-r, r:-r]
         return den
     
@@ -127,7 +127,7 @@ class NLRidge(nn.Module):
         p, m, w = self.p2, self.m2, self.window_size
         
         # Block Matching
-        x_block = torch.mean(input_x, dim=1, keepdim=True)
+        x_block = torch.mean(input_x, dim=1, keepdim=True) # for color
         indices = self.blockMatching(x_block, m, p)
         unfold_y = reflect_unfold(input_y, p//2 + w//2, p)
         unfold_x = reflect_unfold(input_x, p//2 + w//2, p)
@@ -143,20 +143,20 @@ class NLRidge(nn.Module):
         YtY = Y @ Y.transpose(2, 3)
         Im = torch.eye(m, device=device).repeat(N, B, 1, 1)        
         theta = torch.linalg.solve(YtY, YtY - n * sigma**2 * Im).transpose(2, 3) 
-        Y = theta @ Y  
+        X_hat = theta @ Y  
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True)
-        return Y, weights
+        return X_hat, weights
     
     def denoise2(self, Y, X, sigma):
         N, B, m, n = Y.size()
         XtX = X @ X.transpose(2, 3)
         Im = torch.eye(m, device=device).repeat(N, B, 1, 1)
         theta = torch.linalg.solve(XtX + n * sigma**2 * Im, XtX).transpose(2, 3)        
-        Y = theta @ Y 
+        X_hat = theta @ Y 
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True)
-        return Y, weights
+        return X_hat, weights
         
-    def forward(self, input_x, sigma):
-        den1 = self.step1(input_x, sigma)
-        den2 = self.step2(input_x, den1, sigma)
+    def forward(self, input_y, sigma):
+        den1 = self.step1(input_y, sigma)
+        den2 = self.step2(input_y, den1, sigma)
         return den2
