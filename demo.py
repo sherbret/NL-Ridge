@@ -42,7 +42,7 @@ model.to(device)
 # Denoising
 t = time.time()
 img_denoised_torch = model(img_noisy_torch, args.sigma)
-print("Time elapsed:", time.time() - t)
+print("Time elapsed:", round(time.time() - t, 3), "seconds")
 img_denoised = img_denoised_torch.view(*img_noisy.shape).cpu().numpy()
 img_denoised = np.clip(img_denoised, 0, 255)
 
