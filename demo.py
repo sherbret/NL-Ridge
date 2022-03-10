@@ -5,7 +5,6 @@
 # Copyright (C) Inria,  Sébastien Herbreteau, Charles Kervrann, All Rights Reserved, 2022, v1.0.
 
 import torch
-import torch.nn as nn
 import numpy as np
 from skimage.io import imread, imsave
 import argparse
