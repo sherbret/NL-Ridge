@@ -53,8 +53,8 @@ class NLRidge(nn.Module):
 
         # (ind_rows, ind_cols) is a 2d-representation of indices
         # example: from numbers in [0, w**2[ to [-w//2, w//2]^2
-        ind_rows = indices // w - w//2 
-        ind_cols = indices % w - w//2
+        ind_rows = torch.div(indices, w, rounding_mode='floor') - w//2 
+        ind_cols = torch.fmod(indices, w) - w//2
         
         # (row_arange, col_arange) indicates, for each pixel, the number of its row and column
         # example: if we have an image 2x2 -> [[(0, 0), (0,1)], [(1, 0), (1,1)]]
