@@ -7,7 +7,7 @@ Here is the list of libraries you need to install to execute the code:
 * Python 3.8
 * Pytorch 1.10.0
 * Numpy 1.21.2
-* PIL 8.2.0
+* Skimage 0.19.2
 
 ## Install
 
