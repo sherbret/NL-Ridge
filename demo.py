@@ -22,7 +22,7 @@ args = parser.parse_args()
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # Reading
-img = imread(args.img_to_denoise, as_gray=True)
+img = imread(args.img_to_denoise)
 
 if args.add_noise:
 	img_noisy = img + args.sigma * np.random.randn(*img.shape)
