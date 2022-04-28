@@ -52,24 +52,3 @@ if args.add_noise:
 
 # Saving
 imsave(args.img_to_save, np.round(img_denoised).astype(np.uint8))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
