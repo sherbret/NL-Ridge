@@ -9,35 +9,26 @@ import torch.nn as nn
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-def subsample(x, s):
-    if s == 1:
-        return x
+def align_corners(x, s, value=0):
     N, C, H, W = x.size()
-    x_sub = x[:, :, ::s, ::s]
-    if H % s == 1 and W % s == 1:
-        return x_sub
-    else:
-        N, C, Hs, Ws = x_sub.size()
-        if H % s != 1 and W % s != 1:
-            x_sub_f = torch.empty(N, C, Hs+1, Ws+1, dtype=x.dtype, device=device)
-            last_row = x[:, :, -1:, ::s]
-            last_col = x[:, :, ::s, -1:]
-            last_row_col = x[:, :, -1: , -1:]
-            x_sub_f[:, :, :Hs, :Ws] = x_sub
-            x_sub_f[:, :, Hs:, :Ws] = last_row
-            x_sub_f[:, :, :Hs, Ws:] = last_col
-            x_sub_f[:, :, -1:, -1:] = last_row_col
-        elif H % s != 1:
-            x_sub_f = torch.empty(N, C, Hs+1, Ws, dtype=x.dtype, device=device)
-            last_row = x[:, :, -1:, ::s]
-            x_sub_f[:, :, :Hs, :] = x_sub
-            x_sub_f[:, :, Hs:, :] = last_row
-        else:
-            x_sub_f = torch.empty(N, C, Hs, Ws+1, dtype=x.dtype, device=device)
-            last_col = x[:, :, ::s, -1:]
-            x_sub_f[:, :, :, :Ws] = x_sub
-            x_sub_f[:, :, :Hs, Ws:] = last_col
-        return x_sub_f
+    if s == 1 or (H % s == 1 and W % s == 1):
+        return x
+    
+    i_pad = (s - (H % s) + 1) % s
+    j_pad = (s - (W % s) + 1) % s
+    x_pad = nn.functional.pad(x, (0, j_pad, 0, i_pad), mode='constant', value=value)
+    
+    x_pad[:, :, -1:, :W:s] = x[:, :, -1:, ::s]
+    x_pad[:, :, :H:s, -1:] = x[:, :, ::s, -1:]
+    x_pad[:, :, -1: , -1:] = x[:, :, -1: , -1:]
+    
+    if i_pad > 0:
+        x_pad[:, :, H-1:H, :W:s] = value
+    if j_pad > 0:
+        x_pad[:, :, :H:s, W-1:W] = value
+    if i_pad > 0 and j_pad > 0:
+        x_pad[:, :, H-1:H, W-1:W] = value
+    return x_pad
 
 class NLRidge(nn.Module):
     def __init__(self, p1=7, p2=7, m1=18, m2=55, w=37, s=4):
@@ -55,44 +46,43 @@ class NLRidge(nn.Module):
         s = self.step 
         
         r = w//2
-        x_center = nn.functional.unfold(input_x, p)
-        x_center = x_center.view(N, C*p**2, H-p+1, W-p+1)
-        x_pad = nn.functional.pad(x_center, (r, r, r, r), mode='constant', value=float('inf')) # of size (N, p^2, H-p+1+w-1, W-p+1+w-1) = (N, p^2, H+w-p, W+w-p)
-        x_center = subsample(x_center, s)
+        x_patches = nn.functional.unfold(input_x, p).view(N, C*p**2, H-p+1, W-p+1)
+        x_patches = align_corners(x_patches, s, value=float('inf'))
+        x_pad = nn.functional.pad(x_patches, (r, r, r, r), mode='constant', value=float('inf')) 
+        x_center = x_patches[:, :, ::s, ::s]
         x_dist = torch.empty(N, w**2, x_center.size(2), x_center.size(3), dtype=input_x.dtype, device=device)
 
+        _, _, H_ext, W_ext = x_patches.size()
         for i in range(w):
             for j in range(w): 
-                x_ij = x_pad[:, :, i:i+H-p+1, j:j+W-p+1]
-                x_ij = subsample(x_ij, s)
-                x_dist[:, i*w+j, :, :] = torch.sum((x_ij-x_center)**2, dim=1)
+                x_dist[:, i*w+j, :, :] = torch.sum((x_pad[:, :, i:i+H_ext:s, j:j+W_ext:s]-x_center)**2, dim=1)
                 
         x_dist[:, r*w+r, :, :] = -float('inf') # to be sure that the central patch will be chosen     
         topk = torch.topk(x_dist, m, dim=1, largest=False, sorted=True)
         indices = topk.indices
 
         # (ind_rows, ind_cols) is a 2d-representation of indices
-        # example: from numbers in [0, w**2[ to [-w//2, w//2]^2
-        ind_rows = torch.div(indices, w, rounding_mode='floor') - w//2 
-        ind_cols = torch.fmod(indices, w) - w//2
+        ind_row = torch.div(indices, w, rounding_mode='floor') - w//2 
+        ind_col = torch.fmod(indices, w) - w//2
         
         # (row_arange, col_arange) indicates, for each pixel, the number of its row and column
         # example: if we have an image 2x2 -> [[(0, 0), (0,1)], [(1, 0), (1,1)]]
-        row_arange = torch.arange(H+w-p, device=device).view(1, 1, H+w-p, 1).repeat(N, m, 1, W+w-p)[:, :, r:H-p+1+r, r:W-p+1+r]
-        col_arange = torch.arange(W+w-p, device=device).view(1, 1, 1, W+w-p).repeat(N, m, H+w-p, 1)[:, :, r:H-p+1+r, r:W-p+1+r]
-        row_arange = subsample(row_arange, s)
-        col_arange = subsample(col_arange, s)
+        pix_row = torch.arange(H+w-p, device=device).view(1, 1, H+w-p, 1).repeat(N, m, 1, W+w-p)[:, :, r:H-p+1+r, r:W-p+1+r]
+        pix_col = torch.arange(W+w-p, device=device).view(1, 1, 1, W+w-p).repeat(N, m, H+w-p, 1)[:, :, r:H-p+1+r, r:W-p+1+r]
+        pix_row = align_corners(pix_row, s)[:, :, ::s, ::s]
+        pix_col = align_corners(pix_col, s)[:, :, ::s, ::s]
         
         # (indices_row, indices_col) indicates, for each pixel, the pixel it is pointing to
-        indices_row = ind_rows+row_arange
-        indices_col = ind_cols+col_arange
+        indices_row = ind_row + pix_row
+        indices_col = ind_col + pix_col
 
-        # Normalization
+        # back to (H-p+1) x (W-p+1) space
         indices_row = indices_row - r
         indices_col = indices_col - r
+        indices_row[indices_row>H-p] = H-p
+        indices_col[indices_col>W-p] = W-p
 
-        # indices gives the 1d representation of the number of the patch -> from [0, H+w-p[ x [0, W+w-p[ to [0, (H+w-p)x(W+w-p)[ 
-        # we work in an image (H-p+1, W-p+1)
+        # from 2d to 1d representation of indices 
         indices = indices_row * (W-p+1) + indices_col
         
         indices = indices.view(N, m, -1)
@@ -115,9 +105,9 @@ class NLRidge(nn.Module):
             divisor[i, :, :].index_add_(1, indices[i, :], weights[i, :, :])
  
         # Overlap patches
-        num = nn.functional.fold(X_sum, output_size=(H, W), kernel_size=p)
+        xx = nn.functional.fold(X_sum, output_size=(H, W), kernel_size=p)
         divisor = nn.functional.fold(divisor, output_size=(H, W), kernel_size=p)
-        return num / divisor
+        return xx / divisor
     
     def group_patches(self, input_y, indices, m, n, p):
         unfold_y = nn.functional.unfold(input_y, p)
@@ -130,7 +120,7 @@ class NLRidge(nn.Module):
          
     def step1(self, input_y, sigma):
         N, C, H, W = input_y.size() 
-        p, m= self.p1, self.m1
+        p, m = self.p1, self.m1
         
         # Block Matching
         y_block = torch.mean(input_y, dim=1, keepdim=True) # for color
