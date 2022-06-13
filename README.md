@@ -29,27 +29,16 @@ python ./demo.py --sigma 15 --add_noise --in ./test_images/barbara.png --out ./d
 ## Results
 
 ### Gray denoising
-The average PSNR (dB) results of different methods on various datasets corrupted with Gaussian noise (sigma=15 and 25). Best performance among each category (unsupervised or supervised*) is in bold.
+The average PSNR (dB) results of different methods on various datasets corrupted with Gaussian noise (sigma=15, 25 and 50). Best performance among each category is in bold. Second best is underlined.
 
-| Methods | Set12 | BSD68 | Urban100 |
-|---------|:-------:|:--------:|:--------:|
-| Noisy     |  24.61 / 20.17 |  24.61 / 20.17 |   24.61 / 20.17  |
-| BM3D      | 32.37 / 29.97 | 31.07 / 28.57  | 32.35 / 29.70 |
-| NL-Bayes  |   32.25 / 29.88  | 31.16 / **28.70** |  31.96 / 29.34 |
-| **NL-Ridge**  |  **32.46** / 30.00  | **31.20** / 28.67  | **32.53** / **29.90** |
-| DIP  |   30.12 / 27.54 | 28.83 / 26.59  |  - / - |
-| Noise2Self  |   31.01 / 28.64 | 29.46 / 27.72 |  - / - |
-| Self2Self  |   32.07 / **30.02** | 30.62 / 28.60 |  - / - |
-|DnCNN*| **32.86** / **30.44** | **31.73** / **29.23** | 32.68 / 29.97|
-|FFDnet*  |   32.75 / 30.43 | 31.63 / 29.19 | 32.43 / 29.92|
-| LIDIA*  |  32.85 / 30.41 |  31.62 / 29.11 | **32.80** / **30.12** |
+![figure](results.jpeg)
 
 
 The average PSNR (dB) results of NL-Ridge on Set12 dataset corrupted with additive white Gaussian noise.
 
 | sigma |  2 | 5 | 10 | 15 | 20 | 25 | 35 | 50 |
 |---------|:-------:|:--------:|:--------:|:--------:|:--------:|:--------:|:--------:|:--------:|
-|  PSNR | 43.81 | 38.19 | 34.50 | 32.46 | 31.06 | 30.00 | 28.41 |  26.72 |
+|  PSNR | 43.81 | 38.19 | 34.50 | 32.46 | 31.06 | 30.00 | 28.41 |  26.73 |
 
 ### Complexity
 We want to emphasize that  NL-Ridge is relatively fast. We report here the execution times of different algorithms. It is
