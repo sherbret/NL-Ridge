@@ -150,7 +150,7 @@ class NLRidge(nn.Module):
         N, B, m, n = Y.size()
         YtY = Y @ Y.transpose(2, 3)
         Im = torch.eye(m, device=device).repeat(N, B, 1, 1)        
-        theta = torch.linalg.solve(YtY, YtY - n * sigma**2 * Im).transpose(2, 3) 
+        theta = torch.linalg.solve(YtY, YtY - n * sigma**2 * Im)
         X_hat = theta @ Y  
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True)
         return X_hat, weights
@@ -159,7 +159,7 @@ class NLRidge(nn.Module):
         N, B, m, n = Y.size()
         XtX = X @ X.transpose(2, 3)
         Im = torch.eye(m, device=device).repeat(N, B, 1, 1)
-        theta = torch.linalg.solve(XtX + n * sigma**2 * Im, XtX).transpose(2, 3)        
+        theta = torch.linalg.solve(XtX + n * sigma**2 * Im, XtX)    
         X_hat = theta @ Y 
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True)
         return X_hat, weights
