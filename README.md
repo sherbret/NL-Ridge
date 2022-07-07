@@ -5,7 +5,7 @@ Sébastien Herbreteau and Charles Kervrann
 
 Here is the list of libraries you need to install to execute the code:
 * Python 3.8
-* Pytorch 1.10.0
+* Pytorch 1.12.0
 * Numpy 1.21.2
 * Skimage 0.19.2
 
@@ -49,7 +49,7 @@ Running time (in seconds) of different methods on images of size 256x256. Run ti
 
 | | BM3D | NL-Bayes | NL-Ridge | Self2Self | DnCNN | LIDIA |
 |---------|:-------:|:--------:|:--------:|:--------:|:--------:|:--------:|
-|  CPU | 1.68 | 0.21 | 2.37 | n/a | 0.87 | 21.08|
+|  CPU | 1.68 | 0.21 | 1.45 | n/a | 0.87 | 21.08|
 |  GPU | n/a | n/a | 0.162 | 3877 | 0.007 | 1.184|
 
 
