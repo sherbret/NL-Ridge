@@ -9,7 +9,7 @@ import torch.nn as nn
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-def align_corners(x, s, value=0):
+def align_corners(x, s, value=float('inf')):
     N, C, H, W = x.size()
     if s == 1 or (H % s == 1 and W % s == 1):
         return x
@@ -90,8 +90,8 @@ class NLRidge(nn.Module):
         indices = indices.reshape(N, -1)
         return indices
     
-    def aggregation(self, X_hat, weights, indices, input_y, p):
-        N, C, H, W = input_y.size() 
+    def aggregation(self, X_hat, weights, indices, size, p):
+        N, C, H, W = size 
 
         # Replace patches at their own place
         X_hat = X_hat * weights
@@ -105,17 +105,17 @@ class NLRidge(nn.Module):
             divisor[i, :, :].index_add_(1, indices[i, :], weights[i, :, :])
  
         # Overlap patches
-        xx = nn.functional.fold(X_sum, output_size=(H, W), kernel_size=p)
+        x_sum = nn.functional.fold(X_sum, output_size=(H, W), kernel_size=p)
         divisor = nn.functional.fold(divisor, output_size=(H, W), kernel_size=p)
-        return xx / divisor
+        return x_sum / divisor
     
     def group_patches(self, input_y, indices, m, n, p):
         unfold_y = nn.functional.unfold(input_y, p)
         N = unfold_y.size(0)
         Y = torch.gather(unfold_y, dim=2, index=indices.view(N, 1, -1).repeat(1, n, 1))
         Y = Y.transpose(1, 2)
-        Y = Y.reshape(N, -1 , m * n)
-        Y = Y.view(N, -1 , m, n)
+        Y = Y.reshape(N, -1, m * n)
+        Y = Y.view(N, -1, m, n)
         return Y
          
     def step1(self, input_y, sigma):
@@ -129,7 +129,7 @@ class NLRidge(nn.Module):
         
         # Treat patches
         X_hat, weights = self.denoise1(Y, sigma)
-        return self.aggregation(X_hat, weights, indices, input_y, p)
+        return self.aggregation(X_hat, weights, indices, input_y.size(), p)
         
     
     def step2(self, input_y, input_x, sigma):
@@ -144,12 +144,12 @@ class NLRidge(nn.Module):
         
         # Treat patches
         X_hat, weights = self.denoise2(Y, X, sigma)
-        return self.aggregation(X_hat, weights, indices, input_y, p)
+        return self.aggregation(X_hat, weights, indices, input_y.size(), p)
     
     def denoise1(self, Y, sigma):
         N, B, m, n = Y.size()
         YtY = Y @ Y.transpose(2, 3)
-        Im = torch.eye(m, device=device).repeat(N, B, 1, 1)        
+        Im = torch.eye(m, dtype=Y.dtype, device=device).repeat(N, B, 1, 1)        
         L = torch.linalg.cholesky(YtY)
         theta = torch.cholesky_solve(YtY - n * sigma**2 * Im, L)
         X_hat = theta @ Y  
@@ -159,7 +159,7 @@ class NLRidge(nn.Module):
     def denoise2(self, Y, X, sigma):
         N, B, m, n = Y.size()
         XtX = X @ X.transpose(2, 3)
-        Im = torch.eye(m, device=device).repeat(N, B, 1, 1)
+        Im = torch.eye(m, dtype=Y.dtype, device=device).repeat(N, B, 1, 1)
         L = torch.linalg.cholesky(XtX + n * sigma**2 * Im)
         theta = torch.cholesky_solve(XtX, L)
         X_hat = theta @ Y 
