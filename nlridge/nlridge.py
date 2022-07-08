@@ -9,27 +9,6 @@ import torch.nn as nn
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-def align_corners(x, s, value=0):
-    N, C, H, W = x.size()
-    if s == 1 or (H % s == 1 and W % s == 1):
-        return x
-    
-    i_pad = (s - (H % s) + 1) % s
-    j_pad = (s - (W % s) + 1) % s
-    x_pad = nn.functional.pad(x, (0, j_pad, 0, i_pad), mode='constant', value=value)
-    
-    x_pad[:, :, -1:, :W:s] = x[:, :, -1:, ::s]
-    x_pad[:, :, :H:s, -1:] = x[:, :, ::s, -1:]
-    x_pad[:, :, -1: , -1:] = x[:, :, -1: , -1:]
-    
-    if i_pad > 0:
-        x_pad[:, :, H-1:H, :W:s] = value
-    if j_pad > 0:
-        x_pad[:, :, :H:s, W-1:W] = value
-    if i_pad > 0 and j_pad > 0:
-        x_pad[:, :, H-1:H, W-1:W] = value
-    return x_pad
-
 class NLRidge(nn.Module):
     def __init__(self, p1=7, p2=7, m1=18, m2=55, w=37, s=4):
         super(NLRidge, self).__init__()
@@ -44,6 +23,26 @@ class NLRidge(nn.Module):
         N, C, H, W = input_x.size() 
         w = self.window_size
         s = self.step 
+        
+        def align_corners(x, s, value=0):
+            N, C, H, W = x.size()
+            if s == 1 or (H % s == 1 and W % s == 1):
+                return x
+
+            i_pad, j_pad = (s - (H % s) + 1) % s, (s - (W % s) + 1) % s
+            x_pad = nn.functional.pad(x, (0, j_pad, 0, i_pad), mode='constant', value=value)
+
+            x_pad[:, :, -1:, :W:s] = x[:, :, -1:, ::s]
+            x_pad[:, :, :H:s, -1:] = x[:, :, ::s, -1:]
+            x_pad[:, :, -1: , -1:] = x[:, :, -1: , -1:]
+
+            if i_pad > 0:
+                x_pad[:, :, H-1:H, :W:s] = value
+            if j_pad > 0:
+                x_pad[:, :, :H:s, W-1:W] = value
+            if i_pad > 0 and j_pad > 0:
+                x_pad[:, :, H-1:H, W-1:W] = value
+            return x_pad
         
         r = w//2
         x_patches = nn.functional.unfold(input_x, p).view(N, C*p**2, H-p+1, W-p+1)
@@ -131,7 +130,6 @@ class NLRidge(nn.Module):
         X_hat, weights = self.denoise1(Y, sigma)
         return self.aggregation(X_hat, weights, indices, input_y.size(), p)
         
-    
     def step2(self, input_y, input_x, sigma):
         N, C, H, W = input_y.size() 
         p, m = self.p2, self.m2
@@ -150,8 +148,7 @@ class NLRidge(nn.Module):
         N, B, m, n = Y.size()
         YtY = Y @ Y.transpose(2, 3)
         Im = torch.eye(m, dtype=Y.dtype, device=device).repeat(N, B, 1, 1)        
-        L = torch.linalg.cholesky(YtY)
-        theta = torch.cholesky_solve(YtY - n * sigma**2 * Im, L)
+        theta = torch.cholesky_solve(YtY - n * sigma**2 * Im, torch.linalg.cholesky(YtY))
         X_hat = theta @ Y  
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True)
         return X_hat, weights
@@ -160,8 +157,7 @@ class NLRidge(nn.Module):
         N, B, m, n = Y.size()
         XtX = X @ X.transpose(2, 3)
         Im = torch.eye(m, dtype=Y.dtype, device=device).repeat(N, B, 1, 1)
-        L = torch.linalg.cholesky(XtX + n * sigma**2 * Im)
-        theta = torch.cholesky_solve(XtX, L)
+        theta = torch.cholesky_solve(XtX, torch.linalg.cholesky(XtX + n * sigma**2 * Im))
         X_hat = theta @ Y 
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True)
         return X_hat, weights
