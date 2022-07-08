@@ -76,10 +76,8 @@ class NLRidge(nn.Module):
         indices_col = ind_col + pix_col
 
         # back to (H-p+1) x (W-p+1) space
-        indices_row = indices_row - r
-        indices_col = indices_col - r
-        indices_row[indices_row>H-p] = H-p
-        indices_col[indices_col>W-p] = W-p
+        indices_row = (indices_row - r).clip(max=H-p)
+        indices_col = (indices_col - r).clip(max=W-p)
 
         # from 2d to 1d representation of indices 
         indices = indices_row * (W-p+1) + indices_col
