@@ -83,7 +83,6 @@ class NLRidge(nn.Module):
 
         # from 2d to 1d representation of indices 
         indices = indices_row * (W-p+1) + indices_col
-        
         indices = indices.view(N, m, -1)
         indices = indices.transpose(1, 2)
         indices = indices.reshape(N, -1)
@@ -150,7 +149,7 @@ class NLRidge(nn.Module):
         Im = torch.eye(m, dtype=Y.dtype, device=device).repeat(N, B, 1, 1)        
         theta = torch.cholesky_solve(YtY - n * sigma**2 * Im, torch.linalg.cholesky(YtY))
         X_hat = theta @ Y  
-        weights = 1 / torch.sum(theta**2, dim=3, keepdim=True)
+        weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/m, 1)
         return X_hat, weights
     
     def denoise2(self, Y, X, sigma):
@@ -159,7 +158,7 @@ class NLRidge(nn.Module):
         Im = torch.eye(m, dtype=Y.dtype, device=device).repeat(N, B, 1, 1)
         theta = torch.cholesky_solve(XtX, torch.linalg.cholesky(XtX + n * sigma**2 * Im))
         X_hat = theta @ Y 
-        weights = 1 / torch.sum(theta**2, dim=3, keepdim=True)
+        weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/m, 1)
         return X_hat, weights
         
     def forward(self, input_y, sigma):
