@@ -9,7 +9,7 @@ import torch.nn as nn
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-def align_corners(x, s, value=float('inf')):
+def align_corners(x, s, value=0):
     N, C, H, W = x.size()
     if s == 1 or (H % s == 1 and W % s == 1):
         return x
