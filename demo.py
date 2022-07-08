@@ -5,50 +5,43 @@
 # Copyright (C) Inria,  Sébastien Herbreteau, Charles Kervrann, All Rights Reserved, 2022, v1.0.
 
 import torch
-import numpy as np
-from skimage.io import imread, imsave
-import argparse
+from torchvision.io import read_image, write_png
 from nlridge import NLRidge
+import argparse
 import time
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--sigma", type=float, dest="sigma", help="Standard deviation of the noise (noise level). Should be between 1 and 50.", default=15)
-parser.add_argument("--in", type=str, dest="img_to_denoise", help="Path to the image to denoise.", default="./datasets/Set12/08.png")
-parser.add_argument("--out", type=str, dest="img_to_save", help="Path to save the denoised image.", default="./denoised.png")
+parser.add_argument("--sigma", type=float, dest="sigma", help="Standard deviation of the noise (noise level). Should be between 0 and 50.", default=15)
+parser.add_argument("--in", type=str, dest="path_in", help="Path to the image to denoise (PNG or JPEG).", default="./test_images/barbara.png")
+parser.add_argument("--out", type=str, dest="path_out", help="Path to save the denoised image.", default="./denoised.png")
 parser.add_argument("--add_noise", action='store_true', help="Add artificial Gaussian noise to the image.")
 args = parser.parse_args()
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # Reading
-img = imread(args.img_to_denoise)
+img = read_image(args.path_in)[None, :, :, :].float().to(device)
+img_noisy = img + args.sigma * torch.randn_like(img) if args.add_noise else img
 
-if args.add_noise:
-	img_noisy = img + args.sigma * np.random.randn(*img.shape)
-else:
-	img_noisy = img
-
-img_noisy_torch = torch.from_numpy(img_noisy).view(1, 1, *img_noisy.shape).to(device).float()
-
-# Model
+# Choice of the parameters 
 if args.sigma <= 15:
-	model = NLRidge(7, 7, 18, 55, 37, 4) 
+	f = NLRidge(7, 7, 18, 55, 37, 4) 
 elif args.sigma <= 35:
-	model = NLRidge(9, 9, 18, 90, 37, 4) 
+	f = NLRidge(9, 9, 18, 90, 37, 4) 
 else:
-	model = NLRidge(11, 9, 20, 120, 37, 4) 
-model.to(device)
+	f = NLRidge(11, 9, 20, 120, 37, 4) 
+f.to(device)
 
 # Denoising
 t = time.time()
-img_denoised_torch = model(img_noisy_torch, args.sigma)
+den = f(img_noisy, args.sigma)
 print("Time elapsed:", round(time.time() - t, 3), "seconds")
-img_denoised = img_denoised_torch.view(*img_noisy.shape).cpu().numpy()
-img_denoised = np.clip(img_denoised, 0, 255)
+den = den.clip(0, 255)
 
 # Performance in PSNR
 if args.add_noise:
-	print("PSNR:", round(10*np.log10(255**2 / np.mean((img_denoised - img)**2)), 2), "dB")
+	psnr = 10*torch.log10(255**2 / torch.mean((den - img)**2))
+	print("PSNR:", round(float(psnr), 2), "dB")
 
-# Saving
-imsave(args.img_to_save, np.round(img_denoised).astype(np.uint8))
+# Writing
+write_png(den[0, :, :, :].byte(), args.path_out)
