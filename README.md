@@ -6,8 +6,7 @@ Sébastien Herbreteau and Charles Kervrann
 Here is the list of libraries you need to install to execute the code:
 * Python 3.8
 * Pytorch 1.12.0
-* Numpy 1.21.2
-* Skimage 0.19.2
+* Torchvision 0.13
 
 ## Install
 
