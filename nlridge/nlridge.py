@@ -57,7 +57,7 @@ class NLRidge(nn.Module):
                 x_dist[:, i*w+j, :, :] = torch.sum((x_pad[:, :, i:i+H_ext:s, j:j+W_ext:s]-x_center)**2, dim=1)
                 
         x_dist[:, r*w+r, :, :] = -float('inf') # to be sure that the central patch will be chosen     
-        topk = torch.topk(x_dist, m, dim=1, largest=False, sorted=True)
+        topk = torch.topk(x_dist, m, dim=1, largest=False, sorted=False)
         indices = topk.indices
 
         # (ind_rows, ind_cols) is a 2d-representation of indices
