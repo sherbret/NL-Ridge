@@ -6,6 +6,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -23,6 +24,7 @@ class NLRidge(nn.Module):
         N, C, H, W = input_x.size() 
         w = self.window_size
         s = self.step 
+        v = w // 2
         
         def align_corners(x, s, value=0):
             N, C, H, W = x.size()
@@ -30,7 +32,7 @@ class NLRidge(nn.Module):
                 return x
 
             i_pad, j_pad = (s - (H % s) + 1) % s, (s - (W % s) + 1) % s
-            x_pad = nn.functional.pad(x, (0, j_pad, 0, i_pad), mode='constant', value=value)
+            x_pad = F.pad(x, (0, j_pad, 0, i_pad), mode='constant', value=value)
 
             x_pad[:, :, -1:, :W:s] = x[:, :, -1:, ::s]
             x_pad[:, :, :H:s, -1:] = x[:, :, ::s, -1:]
@@ -44,30 +46,29 @@ class NLRidge(nn.Module):
                 x_pad[:, :, H-1:H, W-1:W] = value
             return x_pad
         
-        r = w//2
-        x_patches = nn.functional.unfold(input_x, p).view(N, C*p**2, H-p+1, W-p+1)
+        x_patches = F.unfold(input_x, p).view(N, C*p**2, H-p+1, W-p+1)
         x_patches = align_corners(x_patches, s, value=float('inf'))
-        x_pad = nn.functional.pad(x_patches, (r, r, r, r), mode='constant', value=float('inf')) 
+        x_pad = F.pad(x_patches, (v, v, v, v), mode='constant', value=float('inf')) 
         x_center = x_patches[:, :, ::s, ::s]
         x_dist = torch.empty(N, w**2, x_center.size(2), x_center.size(3), dtype=input_x.dtype, device=device)
 
-        _, _, H_ext, W_ext = x_patches.size()
+        _, _, I, J = x_patches.size()
         for i in range(w):
             for j in range(w): 
-                x_dist[:, i*w+j, :, :] = torch.sum((x_pad[:, :, i:i+H_ext:s, j:j+W_ext:s]-x_center)**2, dim=1)
+                x_dist[:, i*w+j, :, :] = torch.mean((x_pad[:, :, i:i+I:s, j:j+J:s] - x_center)**2, dim=1)
                 
-        x_dist[:, r*w+r, :, :] = -float('inf') # to be sure that the central patch will be chosen     
+        x_dist[:, v*w+v, :, :] = -float('inf') # to be sure that the reference patch will be chosen     
         topk = torch.topk(x_dist, m, dim=1, largest=False, sorted=False)
         indices = topk.indices
 
         # (ind_rows, ind_cols) is a 2d-representation of indices
-        ind_row = torch.div(indices, w, rounding_mode='floor') - w//2 
-        ind_col = torch.fmod(indices, w) - w//2
+        ind_row = torch.div(indices, w, rounding_mode='floor') - v
+        ind_col = torch.fmod(indices, w) - v
         
         # (row_arange, col_arange) indicates, for each pixel, the number of its row and column
         # example: if we have an image 2x2 -> [[(0, 0), (0,1)], [(1, 0), (1,1)]]
-        pix_row = torch.arange(H+w-p, device=device).view(1, 1, H+w-p, 1).repeat(N, m, 1, W+w-p)[:, :, r:H-p+1+r, r:W-p+1+r]
-        pix_col = torch.arange(W+w-p, device=device).view(1, 1, 1, W+w-p).repeat(N, m, H+w-p, 1)[:, :, r:H-p+1+r, r:W-p+1+r]
+        pix_row = torch.arange(H+w-p, device=device).view(1, 1, H+w-p, 1).repeat(N, m, 1, W+w-p)[:, :, v:H-p+1+v, v:W-p+1+v]
+        pix_col = torch.arange(W+w-p, device=device).view(1, 1, 1, W+w-p).repeat(N, m, H+w-p, 1)[:, :, v:H-p+1+v, v:W-p+1+v]
         pix_row = align_corners(pix_row, s)[:, :, ::s, ::s]
         pix_col = align_corners(pix_col, s)[:, :, ::s, ::s]
         
@@ -76,8 +77,8 @@ class NLRidge(nn.Module):
         indices_col = ind_col + pix_col
 
         # back to (H-p+1) x (W-p+1) space
-        indices_row = (indices_row - r).clip(max=H-p)
-        indices_col = (indices_col - r).clip(max=W-p)
+        indices_row = (indices_row - v).clip(max=H-p)
+        indices_col = (indices_col - v).clip(max=W-p)
 
         # from 2d to 1d representation of indices 
         indices = indices_row * (W-p+1) + indices_col
@@ -101,13 +102,13 @@ class NLRidge(nn.Module):
             divisor[i, :, :].index_add_(1, indices[i, :], weights[i, :, :])
  
         # Overlap patches
-        x_sum = nn.functional.fold(X_sum, output_size=(H, W), kernel_size=p)
-        divisor = nn.functional.fold(divisor, output_size=(H, W), kernel_size=p)
+        x_sum = F.fold(X_sum, (H, W), p)
+        divisor = F.fold(divisor, (H, W), p)
         return x_sum / divisor
     
     def group_patches(self, input_y, indices, m, n, p):
-        unfold_y = nn.functional.unfold(input_y, p)
-        N = unfold_y.size(0)
+        N = input_y.size(0)
+        unfold_y = F.unfold(input_y, p)
         Y = torch.gather(unfold_y, dim=2, index=indices.view(N, 1, -1).repeat(1, n, 1))
         Y = Y.transpose(1, 2)
         Y = Y.reshape(N, -1, m * n)
