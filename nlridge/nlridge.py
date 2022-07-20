@@ -55,7 +55,7 @@ class NLRidge(nn.Module):
         _, _, I, J = x_patches.size()
         for i in range(w):
             for j in range(w): 
-                x_dist[:, i*w+j, :, :] = torch.mean((x_pad[:, :, i:i+I:s, j:j+J:s] - x_center)**2, dim=1)
+                x_dist[:, i*w+j, :, :] = torch.mean((x_pad[:, :, i:I+i:s, j:J+j:s] - x_center)**2, dim=1)
                 
         x_dist[:, v*w+v, :, :] = -float('inf') # to be sure that the reference patch will be chosen     
         topk = torch.topk(x_dist, m, dim=1, largest=False, sorted=False)
@@ -92,7 +92,7 @@ class NLRidge(nn.Module):
 
         # Replace patches at their own place
         X_hat = X_hat * weights
-        X_hat = X_hat.permute(0, 3, 1, 2).reshape(N, C*p**2, -1)
+        X_hat = X_hat.permute(0, 3, 1, 2).view(N, C*p**2, -1)
         weights = weights.view(N, 1, -1).repeat(1, C*p**2, 1)
         X_sum = torch.zeros(N, C*p**2, (H-p+1) * (W-p+1), dtype=X_hat.dtype, device=device)
         divisor = torch.zeros(N, C*p**2, (H-p+1) * (W-p+1), dtype=X_hat.dtype, device=device)
@@ -111,7 +111,6 @@ class NLRidge(nn.Module):
         unfold_y = F.unfold(input_y, p)
         Y = torch.gather(unfold_y, dim=2, index=indices.view(N, 1, -1).repeat(1, n, 1))
         Y = Y.transpose(1, 2)
-        Y = Y.reshape(N, -1, m * n)
         Y = Y.view(N, -1, m, n)
         return Y
          
