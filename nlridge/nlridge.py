@@ -20,11 +20,7 @@ class NLRidge(nn.Module):
         self.window_size = w
         self.step = s
         
-    def blockMatching(self, input_x, m, p):
-        N, C, H, W = input_x.size() 
-        w = self.window_size
-        s = self.step 
-        v = w // 2
+    def block_matching(self, input_x, m, p):
         
         def align_corners(x, s, value=0):
             N, C, H, W = x.size()
@@ -46,21 +42,26 @@ class NLRidge(nn.Module):
                 x_pad[:, :, H-1:H, W-1:W] = value
             return x_pad
         
-        x_patches = F.unfold(input_x, p).view(N, C*p**2, H-p+1, W-p+1)
-        x_patches = align_corners(x_patches, s, value=float('inf'))
-        x_pad = F.pad(x_patches, (v, v, v, v), mode='constant', value=float('inf')) 
-        x_center = x_patches[:, :, ::s, ::s]
+        N, C, H, W = input_x.size() 
+        w = self.window_size
+        s = self.step 
+        v = w // 2
+        
+        patches = F.unfold(input_x, p).view(N, C*p**2, H-p+1, W-p+1)
+        patches = align_corners(patches, s, value=float('inf'))
+        pad_patches = F.pad(patches, (v, v, v, v), mode='constant', value=float('inf')) 
+        ref_patches = patches[:, :, ::s, ::s]
 
-        _, _, I, J = x_patches.size()
-        x_dist = torch.empty(N, w**2, x_center.size(2), x_center.size(3), dtype=input_x.dtype, device=device)
-        x_pad = x_pad.permute(0, 2, 3, 1).contiguous()
-        x_center = x_center.permute(0, 2, 3, 1).contiguous()
+        _, _, I, J = patches.size()
+        dist = torch.empty(N, w**2, ref_patches.size(2), ref_patches.size(3), dtype=input_x.dtype, device=device)
+        pad_patches = pad_patches.permute(0, 2, 3, 1).contiguous()
+        ref_patches = ref_patches.permute(0, 2, 3, 1).contiguous()
         for i in range(w):
             for j in range(w): 
-                x_dist[:, i*w+j, :, :] = F.pairwise_distance(x_pad[:, i:I+i:s, j:J+j:s, :], x_center)
+                dist[:, i*w+j, :, :] = F.pairwise_distance(pad_patches[:, i:I+i:s, j:J+j:s, :], ref_patches)
                 
-        x_dist[:, v*w+v, :, :] = -float('inf') # to be sure that the reference patch will be chosen     
-        topk = torch.topk(x_dist, m, dim=1, largest=False, sorted=False)
+        dist[:, v*w+v, :, :] = -float('inf') # to be sure that the reference patch will be chosen     
+        topk = torch.topk(dist, m, dim=1, largest=False, sorted=False)
         indices = topk.indices
 
         # (ind_rows, ind_cols) is a 2d-representation of indices
@@ -93,20 +94,17 @@ class NLRidge(nn.Module):
         N, C, H, W = size 
 
         # Replace patches at their own place
-        X_hat = X_hat * weights
-        X_hat = X_hat.permute(0, 3, 1, 2).view(N, C*p**2, -1)
+        X_hat = (X_hat * weights).permute(0, 3, 1, 2).view(N, C*p**2, -1)
         weights = weights.view(N, 1, -1).expand(-1, C*p**2, -1)
         X_sum = torch.zeros(N, C*p**2, (H-p+1) * (W-p+1), dtype=X_hat.dtype, device=device)
-        divisor = torch.zeros(N, C*p**2, (H-p+1) * (W-p+1), dtype=X_hat.dtype, device=device)
+        divisor = torch.zeros_like(X_sum)
         
         for i in range(N):
             X_sum[i, :, :].index_add_(1, indices[i, :], X_hat[i, :, :])
             divisor[i, :, :].index_add_(1, indices[i, :], weights[i, :, :])
  
         # Overlap patches
-        x_sum = F.fold(X_sum, (H, W), p)
-        divisor = F.fold(divisor, (H, W), p)
-        return x_sum / divisor
+        return F.fold(X_sum, (H, W), p) / F.fold(divisor, (H, W), p)
     
     def group_patches(self, input_y, indices, m, n, p):
         N = input_y.size(0)
@@ -122,7 +120,7 @@ class NLRidge(nn.Module):
         
         # Block Matching
         y_block = torch.mean(input_y, dim=1, keepdim=True) # for color
-        indices = self.blockMatching(y_block, m, p)
+        indices = self.block_matching(y_block, m, p)
         Y = self.group_patches(input_y, indices, m, C*p**2, p)
         
         # Treat patches
@@ -135,7 +133,7 @@ class NLRidge(nn.Module):
         
         # Block Matching
         x_block = torch.mean(input_x, dim=1, keepdim=True) # for color
-        indices = self.blockMatching(x_block, m, p)
+        indices = self.block_matching(x_block, m, p)
         Y = self.group_patches(input_y, indices, m, C*p**2, p)
         X = self.group_patches(input_x, indices, m, C*p**2, p)
         
