@@ -50,12 +50,14 @@ class NLRidge(nn.Module):
         x_patches = align_corners(x_patches, s, value=float('inf'))
         x_pad = F.pad(x_patches, (v, v, v, v), mode='constant', value=float('inf')) 
         x_center = x_patches[:, :, ::s, ::s]
-        x_dist = torch.empty(N, w**2, x_center.size(2), x_center.size(3), dtype=input_x.dtype, device=device)
 
         _, _, I, J = x_patches.size()
+        x_dist = torch.empty(N, w**2, x_center.size(2), x_center.size(3), dtype=input_x.dtype, device=device)
+        x_pad = x_pad.permute(0, 2, 3, 1).contiguous()
+        x_center = x_center.permute(0, 2, 3, 1).contiguous()
         for i in range(w):
             for j in range(w): 
-                x_dist[:, i*w+j, :, :] = torch.mean((x_pad[:, :, i:I+i:s, j:J+j:s] - x_center)**2, dim=1)
+                x_dist[:, i*w+j, :, :] = F.pairwise_distance(x_pad[:, i:I+i:s, j:J+j:s, :], x_center)
                 
         x_dist[:, v*w+v, :, :] = -float('inf') # to be sure that the reference patch will be chosen     
         topk = torch.topk(x_dist, m, dim=1, largest=False, sorted=False)
