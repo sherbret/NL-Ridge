@@ -67,8 +67,8 @@ class NLRidge(nn.Module):
         
         # (row_arange, col_arange) indicates, for each pixel, the number of its row and column
         # example: if we have an image 2x2 -> [[(0, 0), (0,1)], [(1, 0), (1,1)]]
-        pix_row = torch.arange(H+w-p, device=device).view(1, 1, H+w-p, 1).repeat(N, m, 1, W+w-p)[:, :, v:H-p+1+v, v:W-p+1+v]
-        pix_col = torch.arange(W+w-p, device=device).view(1, 1, 1, W+w-p).repeat(N, m, H+w-p, 1)[:, :, v:H-p+1+v, v:W-p+1+v]
+        pix_row = torch.arange(H+w-p, device=device).view(1, 1, H+w-p, 1).expand(N, m, -1, W+w-p)[:, :, v:H-p+1+v, v:W-p+1+v]
+        pix_col = torch.arange(W+w-p, device=device).view(1, 1, 1, W+w-p).expand(N, m, H+w-p, -1)[:, :, v:H-p+1+v, v:W-p+1+v]
         pix_row = align_corners(pix_row, s)[:, :, ::s, ::s]
         pix_col = align_corners(pix_col, s)[:, :, ::s, ::s]
         
@@ -93,7 +93,7 @@ class NLRidge(nn.Module):
         # Replace patches at their own place
         X_hat = X_hat * weights
         X_hat = X_hat.permute(0, 3, 1, 2).view(N, C*p**2, -1)
-        weights = weights.view(N, 1, -1).repeat(1, C*p**2, 1)
+        weights = weights.view(N, 1, -1).expand(-1, C*p**2, -1)
         X_sum = torch.zeros(N, C*p**2, (H-p+1) * (W-p+1), dtype=X_hat.dtype, device=device)
         divisor = torch.zeros(N, C*p**2, (H-p+1) * (W-p+1), dtype=X_hat.dtype, device=device)
         
@@ -109,7 +109,7 @@ class NLRidge(nn.Module):
     def group_patches(self, input_y, indices, m, n, p):
         N = input_y.size(0)
         unfold_y = F.unfold(input_y, p)
-        Y = torch.gather(unfold_y, dim=2, index=indices.view(N, 1, -1).repeat(1, n, 1))
+        Y = torch.gather(unfold_y, dim=2, index=indices.view(N, 1, -1).expand(-1, n, -1))
         Y = Y.transpose(1, 2)
         Y = Y.view(N, -1, m, n)
         return Y
@@ -144,7 +144,7 @@ class NLRidge(nn.Module):
     def denoise1(self, Y, sigma):
         N, B, m, n = Y.size()
         YtY = Y @ Y.transpose(2, 3)
-        Im = torch.eye(m, dtype=Y.dtype, device=device).repeat(N, B, 1, 1)        
+        Im = torch.eye(m, dtype=Y.dtype, device=device).expand(N, B, -1, -1)      
         theta = torch.cholesky_solve(YtY - n * sigma**2 * Im, torch.linalg.cholesky(YtY))
         X_hat = theta @ Y  
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/m, 1)
@@ -153,7 +153,7 @@ class NLRidge(nn.Module):
     def denoise2(self, Y, X, sigma):
         N, B, m, n = Y.size()
         XtX = X @ X.transpose(2, 3)
-        Im = torch.eye(m, dtype=Y.dtype, device=device).repeat(N, B, 1, 1)
+        Im = torch.eye(m, dtype=Y.dtype, device=device).expand(N, B, -1, -1)
         theta = torch.cholesky_solve(XtX, torch.linalg.cholesky(XtX + n * sigma**2 * Im))
         X_hat = theta @ Y 
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/m, 1)
