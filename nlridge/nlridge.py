@@ -20,7 +20,8 @@ class NLRidge(nn.Module):
         self.window_size = w
         self.step = s
         
-    def block_matching(self, input_x, m, p):
+    @staticmethod    
+    def block_matching(input_x, m, p, w, s):
         
         def align_corners(x, s, value=0):
             N, C, H, W = x.size()
@@ -43,8 +44,6 @@ class NLRidge(nn.Module):
             return x_pad
         
         N, C, H, W = input_x.size() 
-        w = self.window_size
-        s = self.step 
         v = w // 2
         
         patches = F.unfold(input_x, p).view(N, C*p**2, H-p+1, W-p+1)
@@ -90,10 +89,39 @@ class NLRidge(nn.Module):
         indices = indices.reshape(N, -1)
         return indices
     
-    def aggregation(self, X_hat, weights, indices, size, p):
+    @staticmethod 
+    def group_patches(input_y, indices, m, n, p):
+        N = input_y.size(0)
+        unfold_y = F.unfold(input_y, p)
+        Y = torch.gather(unfold_y, dim=2, index=indices.view(N, 1, -1).expand(-1, n, -1))
+        Y = Y.transpose(1, 2)
+        Y = Y.view(N, -1, m, n)
+        return Y
+    
+    @staticmethod 
+    def denoise1(Y, sigma):
+        N, B, m, n = Y.size()
+        YtY = Y @ Y.transpose(2, 3)
+        Im = torch.eye(m, dtype=Y.dtype, device=device).expand(N, B, -1, -1)      
+        theta = torch.cholesky_solve(YtY - n * sigma**2 * Im, torch.linalg.cholesky(YtY))
+        X_hat = theta @ Y  
+        weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/m, 1)
+        return X_hat, weights
+    
+    @staticmethod 
+    def denoise2(Y, X, sigma):
+        N, B, m, n = Y.size()
+        XtX = X @ X.transpose(2, 3)
+        Im = torch.eye(m, dtype=Y.dtype, device=device).expand(N, B, -1, -1)
+        theta = torch.cholesky_solve(XtX, torch.linalg.cholesky(XtX + n * sigma**2 * Im))
+        X_hat = theta @ Y 
+        weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/m, 1)
+        return X_hat, weights
+    
+    @staticmethod 
+    def aggregation(X_hat, weights, indices, size, p):
         N, C, H, W = size 
 
-        # Replace patches at their own place
         X_hat = (X_hat * weights).permute(0, 3, 1, 2).view(N, C*p**2, -1)
         weights = weights.view(N, 1, -1).expand(-1, C*p**2, -1)
         X_sum = torch.zeros(N, C*p**2, (H-p+1) * (W-p+1), dtype=X_hat.dtype, device=device)
@@ -103,61 +131,26 @@ class NLRidge(nn.Module):
             X_sum[i, :, :].index_add_(1, indices[i, :], X_hat[i, :, :])
             divisor[i, :, :].index_add_(1, indices[i, :], weights[i, :, :])
  
-        # Overlap patches
         return F.fold(X_sum, (H, W), p) / F.fold(divisor, (H, W), p)
-    
-    def group_patches(self, input_y, indices, m, n, p):
-        N = input_y.size(0)
-        unfold_y = F.unfold(input_y, p)
-        Y = torch.gather(unfold_y, dim=2, index=indices.view(N, 1, -1).expand(-1, n, -1))
-        Y = Y.transpose(1, 2)
-        Y = Y.view(N, -1, m, n)
-        return Y
          
     def step1(self, input_y, sigma):
         N, C, H, W = input_y.size() 
-        p, m = self.p1, self.m1
-        
-        # Block Matching
-        y_block = torch.mean(input_y, dim=1, keepdim=True) # for color
-        indices = self.block_matching(y_block, m, p)
+        m, p, w, s = self.m1, self.p1, self.window_size, self.step
+        y_mean = torch.mean(input_y, dim=1, keepdim=True) # for color
+        indices = self.block_matching(y_mean, m, p, w, s)
         Y = self.group_patches(input_y, indices, m, C*p**2, p)
-        
-        # Treat patches
         X_hat, weights = self.denoise1(Y, sigma)
         return self.aggregation(X_hat, weights, indices, input_y.size(), p)
         
     def step2(self, input_y, input_x, sigma):
         N, C, H, W = input_y.size() 
-        p, m = self.p2, self.m2
-        
-        # Block Matching
-        x_block = torch.mean(input_x, dim=1, keepdim=True) # for color
-        indices = self.block_matching(x_block, m, p)
+        m, p, w, s = self.m2, self.p2, self.window_size, self.step
+        x_mean = torch.mean(input_x, dim=1, keepdim=True) # for color
+        indices = self.block_matching(x_mean, m, p, w, s)
         Y = self.group_patches(input_y, indices, m, C*p**2, p)
         X = self.group_patches(input_x, indices, m, C*p**2, p)
-        
-        # Treat patches
         X_hat, weights = self.denoise2(Y, X, sigma)
         return self.aggregation(X_hat, weights, indices, input_y.size(), p)
-    
-    def denoise1(self, Y, sigma):
-        N, B, m, n = Y.size()
-        YtY = Y @ Y.transpose(2, 3)
-        Im = torch.eye(m, dtype=Y.dtype, device=device).expand(N, B, -1, -1)      
-        theta = torch.cholesky_solve(YtY - n * sigma**2 * Im, torch.linalg.cholesky(YtY))
-        X_hat = theta @ Y  
-        weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/m, 1)
-        return X_hat, weights
-    
-    def denoise2(self, Y, X, sigma):
-        N, B, m, n = Y.size()
-        XtX = X @ X.transpose(2, 3)
-        Im = torch.eye(m, dtype=Y.dtype, device=device).expand(N, B, -1, -1)
-        theta = torch.cholesky_solve(XtX, torch.linalg.cholesky(XtX + n * sigma**2 * Im))
-        X_hat = theta @ Y 
-        weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/m, 1)
-        return X_hat, weights
         
     def forward(self, input_y, sigma):
         den1 = self.step1(input_y, sigma)
