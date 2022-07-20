@@ -48,7 +48,7 @@ Running time (in seconds) of different methods on images of size 256x256. Run ti
 
 | | BM3D | NL-Bayes | NL-Ridge | Self2Self | DnCNN | LIDIA |
 |---------|:-------:|:--------:|:--------:|:--------:|:--------:|:--------:|
-|  CPU | 1.68 | 0.21 | 1.45 | n/a | 0.87 | 21.08|
+|  CPU | 1.68 | 0.21 | 0.66 | n/a | 0.87 | 21.08|
 |  GPU | n/a | n/a | 0.162 | 3877 | 0.007 | 1.184|
 
 
