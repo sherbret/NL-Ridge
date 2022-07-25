@@ -25,22 +25,11 @@ class NLRidge(nn.Module):
         
         def align_corners(x, s, value=0):
             N, C, H, W = x.size()
-            if s == 1 or (H % s == 1 and W % s == 1):
-                return x
-
             i_pad, j_pad = (s - (H % s) + 1) % s, (s - (W % s) + 1) % s
             x_pad = F.pad(x, (0, j_pad, 0, i_pad), mode='constant', value=value)
-
-            x_pad[:, :, -1:, :W:s] = x[:, :, -1:, ::s]
-            x_pad[:, :, :H:s, -1:] = x[:, :, ::s, -1:]
-            x_pad[:, :, -1: , -1:] = x[:, :, -1: , -1:]
-
-            if i_pad > 0:
-                x_pad[:, :, H-1:H, :W:s] = value
-            if j_pad > 0:
-                x_pad[:, :, :H:s, W-1:W] = value
-            if i_pad > 0 and j_pad > 0:
-                x_pad[:, :, H-1:H, W-1:W] = value
+            x_pad[:, :, [H-1, H-1+i_pad], :W-1:s] = x_pad[:, :, [H-1+i_pad, H-1], :W-1:s]
+            x_pad[:, :, :H-1:s, [W-1, W-1+j_pad]] = x_pad[:, :, :H-1:s, [W-1+j_pad, W-1]]
+            x_pad[:, :, [H-1, H-1+i_pad], [W-1, W-1+j_pad]] = x_pad[:, :, [H-1+i_pad, H-1], [W-1+j_pad, W-1]]
             return x_pad
         
         N, C, H, W = input_x.size() 
