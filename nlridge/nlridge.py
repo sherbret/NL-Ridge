@@ -47,30 +47,22 @@ class NLRidge(nn.Module):
         dist[:, v*w+v, :, :] = -float('inf') # to be sure that the reference patch will be chosen     
         indices = torch.topk(dist, m, dim=1, largest=False, sorted=False).indices
 
-        # (ind_rows, ind_cols) is a 2d-representation of indices
+        # (ind_row, ind_col) is a 2d-representation of indices
         ind_row = torch.div(indices, w, rounding_mode='floor') - v
         ind_col = torch.fmod(indices, w) - v
         
-        # (row_arange, col_arange) indicates, for each pixel, the number of its row and column
-        # example: if we have an image 2x2 -> [[(0, 0), (0,1)], [(1, 0), (1,1)]]
-        pix_row = torch.arange(H+w-p, device=device).view(1, 1, H+w-p, 1).expand(N, m, -1, W+w-p)[:, :, v:H-p+1+v, v:W-p+1+v]
-        pix_col = torch.arange(W+w-p, device=device).view(1, 1, 1, W+w-p).expand(N, m, H+w-p, -1)[:, :, v:H-p+1+v, v:W-p+1+v]
-        pix_row = align_corners(pix_row, s)[:, :, ::s, ::s]
-        pix_col = align_corners(pix_col, s)[:, :, ::s, ::s]
+        # (ind_row_ref, ind_col_ref) indicates, for each reference patch, the indice of its row and column
+        ind_row_ref = align_corners(torch.arange(H-p+1, device=device).view(1, 1, -1, 1), s)[:, :, ::s, :]
+        ind_col_ref = align_corners(torch.arange(W-p+1, device=device).view(1, 1, 1, -1), s)[:, :, :, ::s]
+        ind_row_ref = ind_row_ref.expand(N, m, -1, ind_col_ref.size(3))
+        ind_col_ref = ind_col_ref.expand(N, m, ind_row_ref.size(2), -1)
         
-        # (indices_row, indices_col) indicates, for each pixel, the pixel it is pointing to
-        indices_row = ind_row + pix_row
-        indices_col = ind_col + pix_col
-
-        # back to (H-p+1) x (W-p+1) space
-        indices_row = (indices_row - v).clip(max=H-p)
-        indices_col = (indices_col - v).clip(max=W-p)
+        # (indices_row, indices_col) indicates, for each reference patch, the indices of its most similar patches 
+        indices_row = (ind_row_ref + ind_row).clip(max=H-p)
+        indices_col = (ind_col_ref + ind_col).clip(max=W-p)
 
         # from 2d to 1d representation of indices 
-        indices = indices_row * (W-p+1) + indices_col
-        indices = indices.view(N, m, -1)
-        indices = indices.transpose(1, 2)
-        indices = indices.reshape(N, -1)
+        indices = (indices_row * (W-p+1) + indices_col).view(N, m, -1).transpose(1, 2).reshape(N, -1)
         return indices
     
     @staticmethod 
