@@ -42,7 +42,8 @@ class NLRidge(nn.Module):
         
         for i in range(w):
             for j in range(w): 
-                dist[:, i*w+j, :, :] = F.pairwise_distance(pad_patches[:, i:k+i:s, j:l+j:s, :], ref_patches)
+                if i != v or j != v: 
+                    dist[:, i*w+j, :, :] = F.pairwise_distance(pad_patches[:, i:k+i:s, j:l+j:s, :], ref_patches)
                 
         dist[:, v*w+v, :, :] = -float('inf') # to be sure that the reference patch will be chosen     
         indices = torch.topk(dist, m, dim=1, largest=False, sorted=False).indices
@@ -66,12 +67,11 @@ class NLRidge(nn.Module):
         return indices
     
     @staticmethod 
-    def group_patches(input_y, indices, m, n, p):
+    def gather_groups(input_y, indices, m, n, p):
         N = input_y.size(0)
         unfold_y = F.unfold(input_y, p)
         Y = torch.gather(unfold_y, dim=2, index=indices.view(N, 1, -1).expand(-1, n, -1))
-        Y = Y.transpose(1, 2)
-        Y = Y.view(N, -1, m, n)
+        Y = Y.transpose(1, 2).view(N, -1, m, n)
         return Y
     
     @staticmethod 
@@ -113,7 +113,7 @@ class NLRidge(nn.Module):
         m, p, w, s = self.m1, self.p1, self.window_size, self.step
         y_mean = torch.mean(input_y, dim=1, keepdim=True) # for color
         indices = self.block_matching(y_mean, m, p, w, s)
-        Y = self.group_patches(input_y, indices, m, C*p**2, p)
+        Y = self.gather_groups(input_y, indices, m, C*p**2, p)
         X_hat, weights = self.denoise1(Y, sigma)
         x_hat = self.aggregation(X_hat, weights, indices, input_y.size(), p)
         return x_hat
@@ -123,8 +123,8 @@ class NLRidge(nn.Module):
         m, p, w, s = self.m2, self.p2, self.window_size, self.step
         x_mean = torch.mean(input_x, dim=1, keepdim=True) # for color
         indices = self.block_matching(x_mean, m, p, w, s)
-        Y = self.group_patches(input_y, indices, m, C*p**2, p)
-        X = self.group_patches(input_x, indices, m, C*p**2, p)
+        Y = self.gather_groups(input_y, indices, m, C*p**2, p)
+        X = self.gather_groups(input_x, indices, m, C*p**2, p)
         X_hat, weights = self.denoise2(Y, X, sigma)
         x_hat = self.aggregation(X_hat, weights, indices, input_y.size(), p)
         return x_hat
