@@ -39,8 +39,8 @@ den = den.clip(0, 255)
 
 # Performance in PSNR
 if args.add_noise:
-	psnr = 10*torch.log10(255**2 / torch.mean((den - img)**2))
-	print("PSNR:", round(float(psnr), 2), "dB")
+    psnr = 10*torch.log10(255**2 / torch.mean((den - img)**2))
+    print("PSNR:", round(float(psnr), 2), "dB")
 
 # Writing
 write_png(den[0, :, :, :].byte(), args.path_out)
