@@ -25,16 +25,15 @@ img_noisy = img + args.sigma * torch.randn_like(img) if args.add_noise else img
 
 # Choice of the parameters 
 if args.sigma <= 15:
-	f = NLRidge(7, 7, 18, 55, 37, 4) 
+    model = NLRidge(7, 7, 18, 55, 37, 4) 
 elif args.sigma <= 35:
-	f = NLRidge(9, 9, 18, 90, 37, 4) 
+    model = NLRidge(9, 9, 18, 90, 37, 4) 
 else:
-	f = NLRidge(11, 9, 20, 120, 37, 4) 
-f.to(device)
+    model = NLRidge(11, 9, 20, 120, 37, 4)
 
 # Denoising
 t = time.time()
-den = f(img_noisy, args.sigma)
+den = model(img_noisy, args.sigma)
 print("Time elapsed:", round(time.time() - t, 3), "seconds")
 den = den.clip(0, 255)
 
