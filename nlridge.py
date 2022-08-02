@@ -8,17 +8,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 class NLRidge(nn.Module):
-    def __init__(self, p1=7, p2=7, m1=18, m2=55, w=37, s=4):
+    def __init__(self, p1, p2, m1, m2, w, s):
         super(NLRidge, self).__init__()
-        self.p1 = p1
-        self.p2 = p2
-        self.m1 = m1
-        self.m2 = m2
-        self.window_size = w
-        self.step = s
+        self.p1 = p1 # patch size for step 1
+        self.p2 = p2 # patch size for step 2
+        self.m1 = m1 # group size for step 1
+        self.m2 = m2 # group size for step 2
+        self.window_size = w # window size
+        self.step = s # moving step size from one reference patch to another
         
     @staticmethod    
     def block_matching(input_x, m, p, w, s):
@@ -38,7 +36,7 @@ class NLRidge(nn.Module):
         _, _, k, l = patches.size()
         ref_patches = patches[:, :, ::s, ::s].permute(0, 2, 3, 1).contiguous()
         pad_patches = F.pad(patches, (v, v, v, v), mode='constant', value=float('inf')).permute(0, 2, 3, 1).contiguous()
-        dist = torch.empty(N, w**2, ref_patches.size(1), ref_patches.size(2), dtype=input_x.dtype, device=device)
+        dist = torch.empty(N, w**2, ref_patches.size(1), ref_patches.size(2), dtype=input_x.dtype, device=input_x.device)
         
         for i in range(w):
             for j in range(w): 
@@ -53,8 +51,8 @@ class NLRidge(nn.Module):
         ind_col = torch.fmod(indices, w) - v
         
         # (ind_row_ref, ind_col_ref) indicates, for each reference patch, the indice of its row and column
-        ind_row_ref = align_corners(torch.arange(H-p+1, device=device).view(1, 1, -1, 1), s)[:, :, ::s, :]
-        ind_col_ref = align_corners(torch.arange(W-p+1, device=device).view(1, 1, 1, -1), s)[:, :, :, ::s]
+        ind_row_ref = align_corners(torch.arange(H-p+1, device=input_x.device).view(1, 1, -1, 1), s)[:, :, ::s, :]
+        ind_col_ref = align_corners(torch.arange(W-p+1, device=input_x.device).view(1, 1, 1, -1), s)[:, :, :, ::s]
         ind_row_ref = ind_row_ref.expand(N, m, -1, ind_col_ref.size(3))
         ind_col_ref = ind_col_ref.expand(N, m, ind_row_ref.size(2), -1)
         
@@ -78,7 +76,7 @@ class NLRidge(nn.Module):
     def denoise1(Y, sigma):
         N, B, m, n = Y.size()
         YtY = Y @ Y.transpose(2, 3)
-        Im = torch.eye(m, dtype=Y.dtype, device=device).expand(N, B, -1, -1)      
+        Im = torch.eye(m, dtype=Y.dtype, device=Y.device).expand(N, B, -1, -1)      
         theta = torch.cholesky_solve(YtY - n * sigma**2 * Im, torch.linalg.cholesky(YtY))
         X_hat = theta @ Y  
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/m, 1)
@@ -88,18 +86,18 @@ class NLRidge(nn.Module):
     def denoise2(Y, X, sigma):
         N, B, m, n = Y.size()
         XtX = X @ X.transpose(2, 3)
-        Im = torch.eye(m, dtype=Y.dtype, device=device).expand(N, B, -1, -1)
+        Im = torch.eye(m, dtype=Y.dtype, device=Y.device).expand(N, B, -1, -1)
         theta = torch.cholesky_solve(XtX, torch.linalg.cholesky(XtX + n * sigma**2 * Im))
         X_hat = theta @ Y 
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/m, 1)
         return X_hat, weights
     
     @staticmethod 
-    def aggregation(X_hat, weights, indices, size, p):
+    def aggregate(X_hat, weights, indices, size, p):
         N, C, H, W = size 
         X_hat = (X_hat * weights).permute(0, 3, 1, 2).view(N, C*p**2, -1)
         weights = weights.view(N, 1, -1).expand(-1, C*p**2, -1)
-        X_sum = torch.zeros(N, C*p**2, (H-p+1) * (W-p+1), dtype=X_hat.dtype, device=device)
+        X_sum = torch.zeros(N, C*p**2, (H-p+1) * (W-p+1), dtype=X_hat.dtype, device=X_hat.device)
         weights_sum = torch.zeros_like(X_sum)
         
         for i in range(N):
@@ -115,7 +113,7 @@ class NLRidge(nn.Module):
         indices = self.block_matching(y_mean, m, p, w, s)
         Y = self.gather_groups(input_y, indices, m, C*p**2, p)
         X_hat, weights = self.denoise1(Y, sigma)
-        x_hat = self.aggregation(X_hat, weights, indices, input_y.size(), p)
+        x_hat = self.aggregate(X_hat, weights, indices, input_y.size(), p)
         return x_hat
         
     def step2(self, input_y, input_x, sigma):
@@ -126,7 +124,7 @@ class NLRidge(nn.Module):
         Y = self.gather_groups(input_y, indices, m, C*p**2, p)
         X = self.gather_groups(input_x, indices, m, C*p**2, p)
         X_hat, weights = self.denoise2(Y, X, sigma)
-        x_hat = self.aggregation(X_hat, weights, indices, input_y.size(), p)
+        x_hat = self.aggregate(X_hat, weights, indices, input_y.size(), p)
         return x_hat
         
     def forward(self, input_y, sigma):
