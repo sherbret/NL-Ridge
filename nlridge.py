@@ -65,9 +65,9 @@ class NLRidge(nn.Module):
         return indices
     
     @staticmethod 
-    def gather_groups(input_y, indices, k, n, p):
-        N = input_y.size(0)
+    def gather_groups(input_y, indices, k, p):
         unfold_y = F.unfold(input_y, p)
+        N, n, _ = unfold_y.size()
         Y = torch.gather(unfold_y, dim=2, index=indices.view(N, 1, -1).expand(-1, n, -1))
         Y = Y.transpose(1, 2).view(N, -1, k, n)
         return Y
@@ -107,22 +107,22 @@ class NLRidge(nn.Module):
         return F.fold(X_sum, (H, W), p) / F.fold(weights_sum, (H, W), p)
          
     def step1(self, input_y, sigma):
-        _, C, H, W = input_y.size() 
+        _, _, H, W = input_y.size() 
         k, p, w, s = self.k1, self.p1, self.window_size, self.step
         y_mean = torch.mean(input_y, dim=1, keepdim=True) # for color
         indices = self.block_matching(y_mean, k, p, w, s)
-        Y = self.gather_groups(input_y, indices, k, C*p**2, p)
+        Y = self.gather_groups(input_y, indices, k, p)
         X_hat, weights = self.denoise1(Y, sigma)
         x_hat = self.aggregate(X_hat, weights, indices, H, W, p)
         return x_hat
         
     def step2(self, input_y, input_x, sigma):
-        _, C, H, W = input_y.size() 
+        _, _, H, W = input_y.size()
         k, p, w, s = self.k2, self.p2, self.window_size, self.step
         x_mean = torch.mean(input_x, dim=1, keepdim=True) # for color
         indices = self.block_matching(x_mean, k, p, w, s)
-        Y = self.gather_groups(input_y, indices, k, C*p**2, p)
-        X = self.gather_groups(input_x, indices, k, C*p**2, p)
+        Y = self.gather_groups(input_y, indices, k, p)
+        X = self.gather_groups(input_x, indices, k, p)
         X_hat, weights = self.denoise2(Y, X, sigma)
         x_hat = self.aggregate(X_hat, weights, indices, H, W, p)
         return x_hat
