@@ -15,7 +15,7 @@ class NLRidge(nn.Module):
         self.p2 = p2 # patch size for step 2
         self.k1 = k1 # group size for step 1
         self.k2 = k2 # group size for step 2
-        self.window_size = w # size of the window within which similar patches are searched
+        self.window = w # size of the window centered around reference patches within which similar patches are searched (odd number)
         self.step = s # moving step size from one reference patch to another
         
     @staticmethod    
@@ -35,13 +35,13 @@ class NLRidge(nn.Module):
         patches = align_corners(patches, s, value=float('inf'))
         ref_patches = patches[:, :, ::s, ::s].permute(0, 2, 3, 1).contiguous()
         pad_patches = F.pad(patches, (v, v, v, v), mode='constant', value=float('inf')).permute(0, 2, 3, 1).contiguous()
-        a, b, c, d = ref_patches.size(1), ref_patches.size(2), patches.size(2), patches.size(3)
-        dist = torch.empty(N, w**2, a, b, dtype=input_x.dtype, device=input_x.device)
+        hr, wr, hp, wp = ref_patches.size(1), ref_patches.size(2), patches.size(2), patches.size(3)
+        dist = torch.empty(N, w**2, hr, wr, dtype=input_x.dtype, device=input_x.device)
         
         for i in range(w):
             for j in range(w): 
                 if i != v or j != v: 
-                    dist[:, i*w+j, :, :] = F.pairwise_distance(pad_patches[:, i:i+c:s, j:j+d:s, :], ref_patches)
+                    dist[:, i*w+j, :, :] = F.pairwise_distance(pad_patches[:, i:i+hp:s, j:j+wp:s, :], ref_patches)
                 
         dist[:, v*w+v, :, :] = -float('inf') # to be sure that the reference patch will be chosen     
         indices = torch.topk(dist, k, dim=1, largest=False, sorted=False).indices
@@ -93,9 +93,9 @@ class NLRidge(nn.Module):
         return X_hat, weights
     
     @staticmethod 
-    def aggregate(X, weights, indices, H, W, p):
-        N, _, _, n = X.size()
-        X = (X * weights).permute(0, 3, 1, 2).view(N, n, -1)
+    def aggregate(X_hat, weights, indices, H, W, p):
+        N, _, _, n = X_hat.size()
+        X = (X_hat * weights).permute(0, 3, 1, 2).view(N, n, -1)
         weights = weights.view(N, 1, -1).expand(-1, n, -1)
         X_sum = torch.zeros(N, n, (H-p+1) * (W-p+1), dtype=X.dtype, device=X.device)
         weights_sum = torch.zeros_like(X_sum)
@@ -108,7 +108,7 @@ class NLRidge(nn.Module):
          
     def step1(self, input_y, sigma):
         _, _, H, W = input_y.size() 
-        k, p, w, s = self.k1, self.p1, self.window_size, self.step
+        k, p, w, s = self.k1, self.p1, self.window, self.step
         y_mean = torch.mean(input_y, dim=1, keepdim=True) # for color
         indices = self.block_matching(y_mean, k, p, w, s)
         Y = self.gather_groups(input_y, indices, k, p)
@@ -118,7 +118,7 @@ class NLRidge(nn.Module):
         
     def step2(self, input_y, input_x, sigma):
         _, _, H, W = input_y.size()
-        k, p, w, s = self.k2, self.p2, self.window_size, self.step
+        k, p, w, s = self.k2, self.p2, self.window, self.step
         x_mean = torch.mean(input_x, dim=1, keepdim=True) # for color
         indices = self.block_matching(x_mean, k, p, w, s)
         Y = self.gather_groups(input_y, indices, k, p)
