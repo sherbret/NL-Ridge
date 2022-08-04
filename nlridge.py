@@ -43,7 +43,7 @@ class NLRidge(nn.Module):
                 if i != v or j != v: 
                     dist[:, i*w+j, :, :] = F.pairwise_distance(pad_patches[:, i:i+hp:s, j:j+wp:s, :], ref_patches)
                 
-        dist[:, v*w+v, :, :] = -float('inf') # to be sure that the reference patch will be chosen     
+        dist[:, v*w+v, :, :] = -float('inf') # the similarity matrices include the reference patch     
         indices = torch.topk(dist, k, dim=1, largest=False, sorted=False).indices
 
         # (ind_row, ind_col) is a 2d-representation of indices
@@ -51,10 +51,8 @@ class NLRidge(nn.Module):
         ind_col = torch.fmod(indices, w) - v
         
         # (ind_row_ref, ind_col_ref) indicates, for each reference patch, the indice of its row and column
-        ind_row_ref = align_corners(torch.arange(H-p+1, device=input_x.device).view(1, 1, -1, 1), s)[:, :, ::s, :]
-        ind_col_ref = align_corners(torch.arange(W-p+1, device=input_x.device).view(1, 1, 1, -1), s)[:, :, :, ::s]
-        ind_row_ref = ind_row_ref.expand(N, k, -1, ind_col_ref.size(3))
-        ind_col_ref = ind_col_ref.expand(N, k, ind_row_ref.size(2), -1)
+        ind_row_ref = align_corners(torch.arange(H-p+1, device=input_x.device).view(1, 1, -1, 1), s)[:, :, ::s, :].expand(N, k, -1, wr)
+        ind_col_ref = align_corners(torch.arange(W-p+1, device=input_x.device).view(1, 1, 1, -1), s)[:, :, :, ::s].expand(N, k, hr, -1)
         
         # (indices_row, indices_col) indicates, for each reference patch, the indices of its most similar patches 
         indices_row = (ind_row_ref + ind_row).clip(max=H-p)
@@ -68,8 +66,7 @@ class NLRidge(nn.Module):
     def gather_groups(input_y, indices, k, p):
         unfold_y = F.unfold(input_y, p)
         N, n, _ = unfold_y.size()
-        Y = torch.gather(unfold_y, dim=2, index=indices.view(N, 1, -1).expand(-1, n, -1))
-        Y = Y.transpose(1, 2).view(N, -1, k, n)
+        Y = torch.gather(unfold_y, dim=2, index=indices.view(N, 1, -1).expand(-1, n, -1)).transpose(1, 2).view(N, -1, k, n)
         return Y
     
     @staticmethod 
@@ -78,7 +75,7 @@ class NLRidge(nn.Module):
         YtY = Y @ Y.transpose(2, 3)
         Ik = torch.eye(k, dtype=Y.dtype, device=Y.device).expand(N, B, -1, -1)      
         theta = torch.cholesky_solve(YtY - n * sigma**2 * Ik, torch.linalg.cholesky(YtY))
-        X_hat = theta @ Y  
+        X_hat = theta @ Y # theta is a symmetric matrix
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/k, 1)
         return X_hat, weights
     
@@ -88,7 +85,7 @@ class NLRidge(nn.Module):
         XtX = X @ X.transpose(2, 3)
         Ik = torch.eye(k, dtype=Y.dtype, device=Y.device).expand(N, B, -1, -1)
         theta = torch.cholesky_solve(XtX, torch.linalg.cholesky(XtX + n * sigma**2 * Ik))
-        X_hat = theta @ Y 
+        X_hat = theta @ Y # theta is a symmetric matrix
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/k, 1)
         return X_hat, weights
     
