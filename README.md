@@ -30,8 +30,8 @@ python ./demo.py --sigma 15 --add_noise --in ./test_images/barbara.png --out ./d
 ### Gray denoising
 The average PSNR (dB) results of different methods on various datasets corrupted with Gaussian noise (sigma=15, 25 and 50). Best performance among each category is in bold. Second best is underlined.
 
-![figure](results.jpeg)
 
+<img src="https://user-images.githubusercontent.com/88136310/205092725-c1e93e06-8879-4ede-aa8d-a2bba311bdd9.jpeg" width="750">
 
 The average PSNR (dB) results of NL-Ridge on Set12 dataset corrupted with additive white Gaussian noise.
 
