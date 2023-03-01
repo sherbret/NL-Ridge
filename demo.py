@@ -33,7 +33,7 @@ else:
 
 # Denoising
 t = time.time()
-den = model(img_noisy, args.sigma)
+den = model(img_noisy, noise_type="gaussian-homoscedastic", sigma=args.sigma)
 print("Time elapsed:", round(time.time() - t, 3), "seconds")
 den = den.clip(0, 255)
 
