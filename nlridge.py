@@ -70,22 +70,22 @@ class NLRidge(nn.Module):
         return Y
     
     @staticmethod 
-    def denoise1(Y, sigma):
+    def denoise1(Y, V):
         N, B, k, n = Y.size()
         YtY = Y @ Y.transpose(2, 3)
-        Ik = torch.eye(k, dtype=Y.dtype, device=Y.device).expand(N, B, -1, -1)      
-        theta = torch.cholesky_solve(YtY - n * sigma**2 * Ik, torch.linalg.cholesky(YtY))
-        X_hat = theta @ Y # theta is a symmetric matrix
+        diag = torch.diag_embed(torch.sum(V, dim=3))
+        theta = torch.cholesky_solve(YtY - diag, torch.linalg.cholesky(YtY)).transpose(2,3)
+        X_hat = theta @ Y 
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/k, 1)
         return X_hat, weights
     
     @staticmethod 
-    def denoise2(Y, X, sigma):
+    def denoise2(Y, X, V):
         N, B, k, n = Y.size()
         XtX = X @ X.transpose(2, 3)
-        Ik = torch.eye(k, dtype=Y.dtype, device=Y.device).expand(N, B, -1, -1)
-        theta = torch.cholesky_solve(XtX, torch.linalg.cholesky(XtX + n * sigma**2 * Ik))
-        X_hat = theta @ Y # theta is a symmetric matrix
+        diag = torch.diag_embed(torch.sum(V, dim=3))
+        theta = torch.cholesky_solve(XtX, torch.linalg.cholesky(XtX + diag)).transpose(2,3)
+        X_hat = theta @ Y
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/k, 1)
         return X_hat, weights
     
@@ -103,28 +103,52 @@ class NLRidge(nn.Module):
  
         return F.fold(X_sum, (H, W), p) / F.fold(weights_sum, (H, W), p)
          
-    def step1(self, input_y, sigma):
+    def step1(self, input_y, noise_type, sigma, a_pois, b_pois):
         _, _, H, W = input_y.size() 
         k, p, w, s = self.k1, self.p1, self.window, self.step
         y_mean = torch.mean(input_y, dim=1, keepdim=True) # for color
         indices = self.block_matching(y_mean, k, p, w, s)
         Y = self.gather_groups(input_y, indices, k, p)
-        X_hat, weights = self.denoise1(Y, sigma)
+        
+        if noise_type=="gaussian-homoscedastic":
+            V = sigma**2 * torch.ones_like(Y)
+        elif noise_type=="gaussian-heteroscedastic":
+            V = self.gather_groups(sigma**2 * torch.ones_like(input_y), indices, k, p)
+        elif noise_type=="poisson":
+            V = self.gather_groups(input_y, indices, k, p)
+        elif noise_type=="poisson-gaussian":
+            V = self.gather_groups(a_pois*input_y+b_pois, indices, k, p)
+        else:
+            raise ValueError('noise_type must be either gaussian-homoscedastic, gaussian-heteroscedastic, poisson or poisson-gaussian.')
+         
+        X_hat, weights = self.denoise1(Y, V)
         x_hat = self.aggregate(X_hat, weights, indices, H, W, p)
         return x_hat
         
-    def step2(self, input_y, input_x, sigma):
+    def step2(self, input_y, input_x, noise_type, sigma, a_pois, b_pois):
         _, _, H, W = input_y.size()
         k, p, w, s = self.k2, self.p2, self.window, self.step
         x_mean = torch.mean(input_x, dim=1, keepdim=True) # for color
         indices = self.block_matching(x_mean, k, p, w, s)
         Y = self.gather_groups(input_y, indices, k, p)
         X = self.gather_groups(input_x, indices, k, p)
-        X_hat, weights = self.denoise2(Y, X, sigma)
+        
+        if noise_type=="gaussian-homoscedastic":
+            V = sigma**2 * torch.ones_like(X)
+        elif noise_type=="gaussian-heteroscedastic":
+            V = self.gather_groups(sigma**2 * torch.ones_like(input_x), indices, k, p)
+        elif noise_type=="poisson":
+            V = self.gather_groups(input_x, indices, k, p)
+        elif noise_type=="poisson-gaussian":
+            V = self.gather_groups(a_pois*input_x+b_pois, indices, k, p)
+        else:
+            raise ValueError('noise_type must be either gaussian-homoscedastic, gaussian-heteroscedastic, poisson or poisson-gaussian.')
+         
+        X_hat, weights = self.denoise2(Y, X, V)
         x_hat = self.aggregate(X_hat, weights, indices, H, W, p)
         return x_hat
         
-    def forward(self, input_y, sigma):
-        den1 = self.step1(input_y, sigma)
-        den2 = self.step2(input_y, den1, sigma)
+    def forward(self, input_y, noise_type="gaussian-homoscedastic", sigma=25.0, a_pois=1.0, b_pois=0.0):
+        den1 = self.step1(input_y, noise_type, sigma, a_pois, b_pois)
+        den2 = self.step2(input_y, den1, noise_type, sigma, a_pois, b_pois)
         return den2
