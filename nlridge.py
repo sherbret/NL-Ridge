@@ -73,8 +73,8 @@ class NLRidge(nn.Module):
     def denoise1(Y, V):
         N, B, k, n = Y.size()
         YtY = Y @ Y.transpose(2, 3)
-        diag = torch.diag_embed(torch.sum(V, dim=3))
-        theta = torch.cholesky_solve(YtY - diag, torch.linalg.cholesky(YtY)).transpose(2,3)
+        D = torch.diag_embed(torch.sum(V, dim=3))
+        theta = torch.cholesky_solve(YtY - D, torch.linalg.cholesky(YtY)).transpose(2,3)
         X_hat = theta @ Y 
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/k, 1)
         return X_hat, weights
@@ -83,8 +83,8 @@ class NLRidge(nn.Module):
     def denoise2(Y, X, V):
         N, B, k, n = Y.size()
         XtX = X @ X.transpose(2, 3)
-        diag = torch.diag_embed(torch.sum(V, dim=3))
-        theta = torch.cholesky_solve(XtX, torch.linalg.cholesky(XtX + diag)).transpose(2,3)
+        D = torch.diag_embed(torch.sum(V, dim=3))
+        theta = torch.cholesky_solve(XtX, torch.linalg.cholesky(XtX + D)).transpose(2,3)
         X_hat = theta @ Y
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/k, 1)
         return X_hat, weights
