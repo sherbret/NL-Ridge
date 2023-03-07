@@ -69,8 +69,7 @@ class NLRidge(nn.Module):
         Y = torch.gather(unfold_y, dim=2, index=indices.view(N, 1, -1).expand(-1, n, -1)).transpose(1, 2).view(N, -1, k, n)
         return Y
     
-    @staticmethod 
-    def variance_groups(X, noise_type, sigma, a_pois, b_pois, indices, k, p):
+    def variance_groups(self, X, noise_type, sigma, a_pois, b_pois, indices, k, p):
         if noise_type=="gaussian-homoscedastic":
             V = sigma**2 * torch.ones(X.size(0), 1, k, p**2, dtype=X.dtype, device=X.device)
         elif noise_type=="gaussian-heteroscedastic":
