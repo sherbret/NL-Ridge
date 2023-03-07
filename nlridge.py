@@ -70,6 +70,20 @@ class NLRidge(nn.Module):
         return Y
     
     @staticmethod 
+    def variance_groups(X, noise_type, sigma, a_pois, b_pois, indices, k, p):
+        if noise_type=="gaussian-homoscedastic":
+            V = sigma**2 * torch.ones(X.size(0), 1, k, p**2, dtype=X.dtype, device=X.device)
+        elif noise_type=="gaussian-heteroscedastic":
+            V = self.gather_groups(sigma**2, indices, k, p)
+        elif noise_type=="poisson":
+            V = X
+        elif noise_type=="poisson-gaussian":
+            V = a_pois * X + b_pois
+        else:
+            raise ValueError('noise_type must be either gaussian-homoscedastic, gaussian-heteroscedastic, poisson or poisson-gaussian.')
+        return V
+    
+    @staticmethod 
     def denoise1(Y, V):
         N, B, k, n = Y.size()
         YtY = Y @ Y.transpose(2, 3)
@@ -109,18 +123,7 @@ class NLRidge(nn.Module):
         y_mean = torch.mean(input_y, dim=1, keepdim=True) # for color
         indices = self.block_matching(y_mean, k, p, w, s)
         Y = self.gather_groups(input_y, indices, k, p)
-        
-        if noise_type=="gaussian-homoscedastic":
-            V = sigma**2 * torch.ones_like(Y)
-        elif noise_type=="gaussian-heteroscedastic":
-            V = self.gather_groups(sigma**2 * torch.ones_like(input_y), indices, k, p)
-        elif noise_type=="poisson":
-            V = self.gather_groups(input_y, indices, k, p)
-        elif noise_type=="poisson-gaussian":
-            V = self.gather_groups(a_pois*input_y+b_pois, indices, k, p)
-        else:
-            raise ValueError('noise_type must be either gaussian-homoscedastic, gaussian-heteroscedastic, poisson or poisson-gaussian.')
-         
+        V = self.variance_groups(Y, noise_type, sigma, a_pois, b_pois, indices, k, p)
         X_hat, weights = self.denoise1(Y, V)
         x_hat = self.aggregate(X_hat, weights, indices, H, W, p)
         return x_hat
@@ -132,18 +135,7 @@ class NLRidge(nn.Module):
         indices = self.block_matching(x_mean, k, p, w, s)
         Y = self.gather_groups(input_y, indices, k, p)
         X = self.gather_groups(input_x, indices, k, p)
-        
-        if noise_type=="gaussian-homoscedastic":
-            V = sigma**2 * torch.ones_like(X)
-        elif noise_type=="gaussian-heteroscedastic":
-            V = self.gather_groups(sigma**2 * torch.ones_like(input_x), indices, k, p)
-        elif noise_type=="poisson":
-            V = self.gather_groups(input_x, indices, k, p)
-        elif noise_type=="poisson-gaussian":
-            V = self.gather_groups(a_pois*input_x+b_pois, indices, k, p)
-        else:
-            raise ValueError('noise_type must be either gaussian-homoscedastic, gaussian-heteroscedastic, poisson or poisson-gaussian.')
-         
+        V = self.variance_groups(X, noise_type, sigma, a_pois, b_pois, indices, k, p)
         X_hat, weights = self.denoise2(Y, X, V)
         x_hat = self.aggregate(X_hat, weights, indices, H, W, p)
         return x_hat
