@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class NLRidge(nn.Module):
-    def __init__(self, p1=7, p2=7, k1=18, k2=55, w=37, s=4):
+    def __init__(self, p1=7, p2=7, k1=18, k2=55, w=37, s=4, affine=True):
         super(NLRidge, self).__init__()
         self.p1 = p1 # patch size for step 1
         self.p2 = p2 # patch size for step 2
@@ -17,7 +17,8 @@ class NLRidge(nn.Module):
         self.k2 = k2 # group size for step 2
         self.window = w # size of the window centered around reference patches within which similar patches are searched (odd number)
         self.step = s # moving step size from one reference patch to another
-        
+        self.affine = affine # ensure affine combinations of patches 
+
     @staticmethod    
     def block_matching(input_x, k, p, w, s):
         def align_corners(x, s, value=0):
@@ -82,22 +83,36 @@ class NLRidge(nn.Module):
             raise ValueError('noise_type must be either gaussian-homoscedastic, gaussian-heteroscedastic, poisson or poisson-gaussian.')
         return V
     
-    @staticmethod 
-    def denoise1(Y, V):
+    def denoise1(self, Y, V):
         N, B, k, n = Y.size()
         YtY = Y @ Y.transpose(2, 3)
-        D = torch.diag_embed(torch.sum(V, dim=3))
-        theta = torch.cholesky_solve(YtY - D, torch.linalg.cholesky(YtY)).transpose(2,3)
+        D = torch.sum(V, dim=3)
+        Ik = torch.eye(k, dtype=Y.dtype, device=Y.device).expand(N, B, -1, -1)  
+        S = torch.cholesky_solve(Ik, torch.linalg.cholesky(YtY))
+        if self.affine:
+            S1 = torch.sum(S, dim=3, keepdim=True)
+            S_sum = torch.sum(S1, dim=2, keepdim=True)
+            theta = Ik - (S - S1 @ S1.transpose(2, 3) / S_sum) * D.unsqueeze(3)
+        else:
+            theta = Ik - S * D.unsqueeze(3)
+        theta = theta.transpose(2,3)
         X_hat = theta @ Y 
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/k, 1)
         return X_hat, weights
     
-    @staticmethod 
-    def denoise2(Y, X, V):
+    def denoise2(self, Y, X, V):
         N, B, k, n = Y.size()
         XtX = X @ X.transpose(2, 3)
-        D = torch.diag_embed(torch.sum(V, dim=3))
-        theta = torch.cholesky_solve(XtX, torch.linalg.cholesky(XtX + D)).transpose(2,3)
+        D = torch.sum(V, dim=3)
+        Ik = torch.eye(k, dtype=Y.dtype, device=Y.device).expand(N, B, -1, -1)  
+        S = torch.cholesky_solve(Ik, torch.linalg.cholesky(XtX + torch.diag_embed(D)))
+        if self.affine:
+            S1 = torch.sum(S, dim=3, keepdim=True)
+            S_sum = torch.sum(S1, dim=2, keepdim=True)
+            theta = Ik - (S - S1 @ S1.transpose(2, 3) / S_sum) * D.unsqueeze(3)
+        else:
+            theta = Ik - S * D.unsqueeze(3)
+        theta = theta.transpose(2,3)
         X_hat = theta @ Y
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/k, 1)
         return X_hat, weights
