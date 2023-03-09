@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class NLRidge(nn.Module):
-    def __init__(self, p1=7, p2=7, k1=18, k2=55, w=37, s=4, affine=True):
+    def __init__(self, p1=7, p2=7, k1=18, k2=55, w=37, s=4, affine=False):
         super(NLRidge, self).__init__()
         self.p1 = p1 # patch size for step 1
         self.p2 = p2 # patch size for step 2
