@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class NLRidge(nn.Module):
-    def __init__(self, p1=7, p2=7, k1=18, k2=55, w=37, s=4, affine=False):
+    def __init__(self, p1=7, p2=7, k1=18, k2=55, w=37, s=4, constraints='linear'):
         super(NLRidge, self).__init__()
         self.p1 = p1 # patch size for step 1
         self.p2 = p2 # patch size for step 2
@@ -17,7 +17,7 @@ class NLRidge(nn.Module):
         self.k2 = k2 # group size for step 2
         self.window = w # size of the window centered around reference patches within which similar patches are searched (odd number)
         self.step = s # moving step size from one reference patch to another
-        self.affine = affine # ensure affine combinations of patches 
+        self.constraints = constraints # either 'linear', 'affine' or 'convex' 
 
     @staticmethod    
     def block_matching(input_x, k, p, w, s):
@@ -71,48 +71,48 @@ class NLRidge(nn.Module):
         return Y
     
     def variance_groups(self, X, noise_type, sigma, a_pois, b_pois, indices, k, p):
-        if noise_type=="gaussian-homoscedastic":
+        if noise_type=='gaussian-homoscedastic':
             V = sigma**2 * torch.ones(X.size(0), 1, k, p**2, dtype=X.dtype, device=X.device)
-        elif noise_type=="gaussian-heteroscedastic":
+        elif noise_type=='gaussian-heteroscedastic':
             V = self.gather_groups(sigma**2, indices, k, p)
-        elif noise_type=="poisson":
+        elif noise_type=='poisson':
             V = X
-        elif noise_type=="poisson-gaussian":
+        elif noise_type=='poisson-gaussian':
             V = a_pois * X + b_pois
         else:
             raise ValueError('noise_type must be either gaussian-homoscedastic, gaussian-heteroscedastic, poisson or poisson-gaussian.')
         return V
     
+    def compute_theta(self, Q, D):
+        N, B, k, _ = Q.size()
+        Ik = torch.eye(k, dtype=Q.dtype, device=Q.device).expand(N, B, -1, -1) 
+        Qinv = torch.cholesky_solve(Ik, torch.linalg.cholesky(Q))
+        if self.constraints == 'linear':
+            theta = Ik - Qinv * D.unsqueeze(-1)
+        elif self.constraints == 'affine':
+            Qinv1 = torch.sum(Qinv, dim=3, keepdim=True)
+            Qinv2 = torch.sum(Qinv1, dim=2, keepdim=True)
+            theta = Ik - (Qinv - Qinv1 @ Qinv1.transpose(2, 3) / Qinv2) * D.unsqueeze(-1)
+        elif self.constraints == 'convex':
+            raise NotImplementedError
+        else:
+            raise ValueError('constraints must be either linear, affine or convex.')
+        return theta.transpose(2,3)
+ 
     def denoise1(self, Y, V):
         N, B, k, n = Y.size()
-        YtY = Y @ Y.transpose(2, 3)
         D = torch.sum(V, dim=3)
-        Ik = torch.eye(k, dtype=Y.dtype, device=Y.device).expand(N, B, -1, -1)  
-        S = torch.cholesky_solve(Ik, torch.linalg.cholesky(YtY))
-        if self.affine:
-            S1 = torch.sum(S, dim=3, keepdim=True)
-            S_sum = torch.sum(S1, dim=2, keepdim=True)
-            theta = Ik - (S - S1 @ S1.transpose(2, 3) / S_sum) * D.unsqueeze(3)
-        else:
-            theta = Ik - S * D.unsqueeze(3)
-        theta = theta.transpose(2,3)
+        Q = Y @ Y.transpose(2, 3)
+        theta = self.compute_theta(Q, D)
         X_hat = theta @ Y 
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/k, 1)
         return X_hat, weights
     
     def denoise2(self, Y, X, V):
         N, B, k, n = Y.size()
-        XtX = X @ X.transpose(2, 3)
         D = torch.sum(V, dim=3)
-        Ik = torch.eye(k, dtype=Y.dtype, device=Y.device).expand(N, B, -1, -1)  
-        S = torch.cholesky_solve(Ik, torch.linalg.cholesky(XtX + torch.diag_embed(D)))
-        if self.affine:
-            S1 = torch.sum(S, dim=3, keepdim=True)
-            S_sum = torch.sum(S1, dim=2, keepdim=True)
-            theta = Ik - (S - S1 @ S1.transpose(2, 3) / S_sum) * D.unsqueeze(3)
-        else:
-            theta = Ik - S * D.unsqueeze(3)
-        theta = theta.transpose(2,3)
+        Q = X @ X.transpose(2, 3) + torch.diag_embed(D)
+        theta = self.compute_theta(Q, D)
         X_hat = theta @ Y
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/k, 1)
         return X_hat, weights
@@ -154,7 +154,7 @@ class NLRidge(nn.Module):
         x_hat = self.aggregate(X_hat, weights, indices, H, W, p)
         return x_hat
         
-    def forward(self, input_y, noise_type="gaussian-homoscedastic", sigma=25.0, a_pois=1.0, b_pois=0.0):
+    def forward(self, input_y, noise_type='gaussian-homoscedastic', sigma=25.0, a_pois=1.0, b_pois=0.0):
         den1 = self.step1(input_y, noise_type, sigma, a_pois, b_pois)
         den2 = self.step2(input_y, den1, noise_type, sigma, a_pois, b_pois)
         return den2
