@@ -93,7 +93,7 @@ class NLRidge(nn.Module):
                 m = Q.max() + eps
                 Q, D = Q / m, D / m
                 torch.diagonal(Q, dim1=-2, dim2=-1).add_(eps)
-                torch.diagonal(D, dim1=-2, dim2=-1).add_(eps)
+                D.add_(eps)
                 L = torch.linalg.cholesky(Q)
             Qinv = torch.cholesky_solve(Ik, L)
             if self.constraints == 'linear':
