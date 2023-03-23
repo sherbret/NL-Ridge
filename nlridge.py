@@ -85,18 +85,27 @@ class NLRidge(nn.Module):
     
     def compute_theta(self, Q, D):
         N, B, k, _ = Q.size()
-        Ik = torch.eye(k, dtype=Q.dtype, device=Q.device).expand(N, B, -1, -1) 
-        Qinv = torch.cholesky_solve(Ik, torch.linalg.cholesky(Q))
-        if self.constraints == 'linear':
-            theta = Ik - Qinv * D.unsqueeze(-1)
-        elif self.constraints == 'affine':
-            Qinv1 = torch.sum(Qinv, dim=3, keepdim=True)
-            Qinv2 = torch.sum(Qinv1, dim=2, keepdim=True)
-            theta = Ik - (Qinv - Qinv1 @ Qinv1.transpose(2, 3) / Qinv2) * D.unsqueeze(-1)
-        elif self.constraints == 'convex':
+        if self.constraints == 'linear' or self.constraints == 'affine':
+            Ik = torch.eye(k, dtype=Q.dtype, device=Q.device).expand(N, B, -1, -1)
+            L, info = torch.linalg.cholesky_ex(Q)
+            if torch.count_nonzero(info) > 0:
+                eps = 1e-6
+                m = Q.max() + eps
+                Q, D = Q / m, D / m
+                torch.diagonal(Q, dim1=-2, dim2=-1).add_(eps)
+                torch.diagonal(D, dim1=-2, dim2=-1).add_(eps)
+                L = torch.linalg.cholesky(Q)
+            Qinv = torch.cholesky_solve(Ik, L)
+            if self.constraints == 'linear':
+                theta = Ik - Qinv * D.unsqueeze(-1)
+            else:
+                Qinv1 = torch.sum(Qinv, dim=3, keepdim=True)
+                Qinv2 = torch.sum(Qinv1, dim=2, keepdim=True)
+                theta = Ik - (Qinv - Qinv1 @ Qinv1.transpose(2, 3) / Qinv2) * D.unsqueeze(-1)
+        elif self.constraints == 'conical' or self.constraints == 'convex':
             raise NotImplementedError
         else:
-            raise ValueError('constraints must be either linear, affine or convex.')
+            raise ValueError('constraints must be either linear, affine, conical or convex.')
         return theta.transpose(2,3)
  
     def denoise1(self, Y, V):
