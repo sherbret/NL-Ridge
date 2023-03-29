@@ -17,7 +17,7 @@ class NLRidge(nn.Module):
         self.k2 = k2 # group size for step 2
         self.window = w # size of the window centered around reference patches within which similar patches are searched (odd number)
         self.step = s # moving step size from one reference patch to another
-        self.constraints = constraints # either 'linear', 'affine' or 'convex' 
+        self.constraints = constraints # either 'linear', 'affine', 'conical' or 'convex' 
 
     @staticmethod    
     def block_matching(input_x, k, p, w, s):
@@ -103,7 +103,23 @@ class NLRidge(nn.Module):
                 Qinv2 = torch.sum(Qinv1, dim=2, keepdim=True)
                 theta = Ik - (Qinv - Qinv1 @ Qinv1.transpose(2, 3) / Qinv2) * D.unsqueeze(-1)
         elif self.constraints == 'conical' or self.constraints == 'convex':
-            raise NotImplementedError
+            # Coordinate descent algorithm
+            N, B, k, _ = Q.size()
+            C = torch.diag_embed(D) - Q
+            theta = torch.ones_like(Q) / k
+            for _ in range(1000):
+                for i in range(k): 
+                    if self.constraints == 'conical':
+                        alpha = -(Q[:, :, i:i+1, :] @ theta + C[:, :, i:i+1, :]) / Q[:, :, i:i+1, i:i+1]
+                        alpha = alpha.clip(min=-theta[:, :, i:i+1, :])
+                        theta[:, :, i:i+1, :] += alpha
+                    elif self.constraints == 'convex':
+                        j = (i + int(torch.randint(low=1, high=k, size=(1,)))) % k
+                        alpha = -((Q[:, :, i:i+1, :] - Q[:, :, j:j+1, :]) @ theta + C[:, :, i:i+1, :] - C[:, :, j:j+1, :]) /\
+                                (Q[:, :, i:i+1, i:i+1] + Q[:, :, j:j+1, j:j+1] - 2 * Q[:, :, i:i+1, j:j+1])
+                        alpha = alpha.clip(min=-theta[:, :, i:i+1, :], max=theta[:, :, j:j+1, :])
+                        theta[:, :, i:i+1, :] += alpha
+                        theta[:, :, j:j+1, :] -= alpha
         else:
             raise ValueError('constraints must be either linear, affine, conical or convex.')
         return theta.transpose(2,3)
