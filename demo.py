@@ -23,17 +23,15 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 img = read_image(args.path_in)[None, :, :, :].float().to(device)
 img_noisy = img + args.sigma * torch.randn_like(img) if args.add_noise else img
 
-# Choice of the parameters 
-if args.sigma <= 15:
-    model = NLRidge(7, 7, 18, 55, 37, 4) 
-elif args.sigma <= 35:
-    model = NLRidge(9, 9, 18, 90, 37, 4) 
-else:
-    model = NLRidge(11, 9, 20, 120, 37, 4)
-
 # Denoising
+model = NLRidge()
 t = time.time()
-den = model(img_noisy, noise_type="gaussian-homoscedastic", sigma=args.sigma)
+if args.sigma <= 15:
+	den = model(img_noisy, sigma=args.sigma, noise_type="gaussian-homoscedastic", p1=7, p2=7, k1=18, k2=55, w=37, s=4)
+elif args.sigma <= 35:
+	den = model(img_noisy, sigma=args.sigma, noise_type="gaussian-homoscedastic", p1=9, p2=9, k1=18, k2=90, w=37, s=4)
+else:
+	den = model(img_noisy, sigma=args.sigma, noise_type="gaussian-homoscedastic", p1=11, p2=9, k1=20, k2=120, w=37, s=4)
 print("Time elapsed:", round(time.time() - t, 3), "seconds")
 den = den.clip(0, 255)
 
