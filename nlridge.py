@@ -9,16 +9,26 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class NLRidge(nn.Module):
-    def __init__(self, p1=7, p2=7, k1=18, k2=55, w=37, s=4, constraints='linear'):
+    def __init__(self):
         super(NLRidge, self).__init__()
+        self.set_parameters()
+
+    def set_parameters(self, noise_type='gaussian-homoscedastic',\
+                        sigma=25.0, a_pois=1.0, b_pois=0.0,\
+                        p1=7, p2=7, k1=18, k2=55, w=37, s=4,\
+                        constraints='linear'):
+        self.noise_type = noise_type # either gaussian-homoscedastic, gaussian-heteroscedastic, poisson or poisson-gaussian.
+        self.sigma = sigma # sigma parameter for Gaussian noise
+        self.a_pois = a_pois # a parameter for Poisson-Gaussian noise
+        self.b_pois = b_pois # b parameter for Poisson-Gaussian noise
         self.p1 = p1 # patch size for step 1
         self.p2 = p2 # patch size for step 2
         self.k1 = k1 # group size for step 1
         self.k2 = k2 # group size for step 2
         self.window = w # size of the window centered around reference patches within which similar patches are searched (odd number)
         self.step = s # moving step size from one reference patch to another
-        self.constraints = constraints # either 'linear', 'affine', 'conical' or 'convex' 
-
+        self.constraints = constraints # either 'linear', 'affine', 'conical' or 'convex'
+        
     @staticmethod    
     def block_matching(input_x, k, p, w, s):
         def align_corners(x, s, value=0):
@@ -70,15 +80,29 @@ class NLRidge(nn.Module):
         Y = torch.gather(unfold_y, dim=2, index=indices.view(N, 1, -1).expand(-1, n, -1)).transpose(1, 2).view(N, -1, k, n)
         return Y
     
-    def variance_groups(self, X, noise_type, sigma, a_pois, b_pois, indices, k, p):
-        if noise_type=='gaussian-homoscedastic':
-            V = sigma**2 * torch.ones(X.size(0), 1, k, p**2, dtype=X.dtype, device=X.device)
-        elif noise_type=='gaussian-heteroscedastic':
-            V = self.gather_groups(sigma**2, indices, k, p)
-        elif noise_type=='poisson':
+    @staticmethod 
+    def aggregate(X_hat, weights, indices, H, W, p):
+        N, _, _, n = X_hat.size()
+        X = (X_hat * weights).permute(0, 3, 1, 2).view(N, n, -1)
+        weights = weights.view(N, 1, -1).expand(-1, n, -1)
+        X_sum = torch.zeros(N, n, (H-p+1) * (W-p+1), dtype=X.dtype, device=X.device)
+        weights_sum = torch.zeros_like(X_sum)
+        
+        for i in range(N):
+            X_sum[i, :, :].index_add_(1, indices[i, :], X[i, :, :])
+            weights_sum[i, :, :].index_add_(1, indices[i, :], weights[i, :, :])
+ 
+        return F.fold(X_sum, (H, W), p) / F.fold(weights_sum, (H, W), p)
+    
+    def variance_groups(self, X, indices, k, p):
+        if self.noise_type=='gaussian-homoscedastic':
+            V = self.sigma**2 * torch.ones(X.size(0), 1, k, p**2, dtype=X.dtype, device=X.device)
+        elif self.noise_type=='gaussian-heteroscedastic':
+            V = self.gather_groups(self.sigma**2, indices, k, p)
+        elif self.noise_type=='poisson':
             V = X
-        elif noise_type=='poisson-gaussian':
-            V = a_pois * X + b_pois
+        elif self.noise_type=='poisson-gaussian':
+            V = self.a_pois * X + self.b_pois
         else:
             raise ValueError('noise_type must be either gaussian-homoscedastic, gaussian-heteroscedastic, poisson or poisson-gaussian.')
         return V
@@ -141,45 +165,34 @@ class NLRidge(nn.Module):
         X_hat = theta @ Y
         weights = 1 / torch.sum(theta**2, dim=3, keepdim=True).clip(1/k, 1)
         return X_hat, weights
-    
-    @staticmethod 
-    def aggregate(X_hat, weights, indices, H, W, p):
-        N, _, _, n = X_hat.size()
-        X = (X_hat * weights).permute(0, 3, 1, 2).view(N, n, -1)
-        weights = weights.view(N, 1, -1).expand(-1, n, -1)
-        X_sum = torch.zeros(N, n, (H-p+1) * (W-p+1), dtype=X.dtype, device=X.device)
-        weights_sum = torch.zeros_like(X_sum)
-        
-        for i in range(N):
-            X_sum[i, :, :].index_add_(1, indices[i, :], X[i, :, :])
-            weights_sum[i, :, :].index_add_(1, indices[i, :], weights[i, :, :])
- 
-        return F.fold(X_sum, (H, W), p) / F.fold(weights_sum, (H, W), p)
          
-    def step1(self, input_y, noise_type, sigma, a_pois, b_pois):
+    def step1(self, input_y):
         _, _, H, W = input_y.size() 
         k, p, w, s = self.k1, self.p1, self.window, self.step
         y_mean = torch.mean(input_y, dim=1, keepdim=True) # for color
         indices = self.block_matching(y_mean, k, p, w, s)
         Y = self.gather_groups(input_y, indices, k, p)
-        V = self.variance_groups(Y, noise_type, sigma, a_pois, b_pois, indices, k, p)
+        V = self.variance_groups(Y, indices, k, p)
         X_hat, weights = self.denoise1(Y, V)
         x_hat = self.aggregate(X_hat, weights, indices, H, W, p)
         return x_hat
         
-    def step2(self, input_y, input_x, noise_type, sigma, a_pois, b_pois):
+    def step2(self, input_y, input_x):
         _, _, H, W = input_y.size()
         k, p, w, s = self.k2, self.p2, self.window, self.step
         x_mean = torch.mean(input_x, dim=1, keepdim=True) # for color
         indices = self.block_matching(x_mean, k, p, w, s)
         Y = self.gather_groups(input_y, indices, k, p)
         X = self.gather_groups(input_x, indices, k, p)
-        V = self.variance_groups(X, noise_type, sigma, a_pois, b_pois, indices, k, p)
+        V = self.variance_groups(X, indices, k, p)
         X_hat, weights = self.denoise2(Y, X, V)
         x_hat = self.aggregate(X_hat, weights, indices, H, W, p)
         return x_hat
         
-    def forward(self, input_y, noise_type='gaussian-homoscedastic', sigma=25.0, a_pois=1.0, b_pois=0.0):
-        den1 = self.step1(input_y, noise_type, sigma, a_pois, b_pois)
-        den2 = self.step2(input_y, den1, noise_type, sigma, a_pois, b_pois)
-        return den2
+    def forward(self, input_y, noise_type='gaussian-homoscedastic',\
+                        sigma=25.0, a_pois=1.0, b_pois=0.0,\
+                        p1=7, p2=7, k1=18, k2=55, w=37, s=4,\
+                        constraints='linear'):
+        self.set_parameters(noise_type, sigma, a_pois, b_pois, p1, p2, k1, k2, w, s, constraints)
+        den1 = self.step1(input_y)
+        den2 = self.step2(input_y, den1)
