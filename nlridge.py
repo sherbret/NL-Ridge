@@ -196,3 +196,4 @@ class NLRidge(nn.Module):
         self.set_parameters(noise_type, sigma, a_pois, b_pois, p1, p2, k1, k2, w, s, constraints)
         den1 = self.step1(input_y)
         den2 = self.step2(input_y, den1)
+        return den2
