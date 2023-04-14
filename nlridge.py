@@ -57,7 +57,7 @@ class NLRidge(nn.Module):
             distances = torch.nan_to_num(norm_patches - 2 * scalar_product, nan=float('inf'))
             distances[:, :, v, v] = -float('inf') # the reference patch is always taken
             distances = distances.view(N, Href*Wref, -1)
-            indices = torch.topk(distances, k, dim=2, largest=False, sorted=True).indices.view(N, Href, Wref, k)
+            indices = torch.topk(distances, k, dim=2, largest=False, sorted=False).indices.view(N, Href, Wref, k)
             return indices
 
         indices = torch.empty_like(ind_H_ref)
