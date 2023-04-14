@@ -5,8 +5,8 @@ Sébastien Herbreteau and Charles Kervrann
 
 Here is the list of libraries you need to install to execute the code:
 * Python 3.8
-* Pytorch 1.12.0
-* Torchvision 0.13
+* Pytorch 2.0
+* Torchvision 0.15.1
 
 ## Install
 
