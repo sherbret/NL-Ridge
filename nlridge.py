@@ -7,14 +7,15 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 class NLRidge(nn.Module):
     def __init__(self):
         super(NLRidge, self).__init__()
         self.set_parameters()
 
-    def set_parameters(self, noise_type='gaussian-homoscedastic',\
-                        sigma=25.0, a_pois=1.0, b_pois=0.0,\
+    def set_parameters(self, sigma=25.0, a_pois=1.0, b_pois=0.0,\
+                        noise_type='gaussian-homoscedastic', \
                         p1=7, p2=7, k1=18, k2=55, w=37, s=4,\
                         constraints='linear'):
         self.noise_type = noise_type # either gaussian-homoscedastic, gaussian-heteroscedastic, poisson or poisson-gaussian.
@@ -28,49 +29,59 @@ class NLRidge(nn.Module):
         self.window = w # size of the window centered around reference patches within which similar patches are searched (odd number)
         self.step = s # moving step size from one reference patch to another
         self.constraints = constraints # either 'linear', 'affine', 'conical' or 'convex'
-        
-    @staticmethod    
+         
+    @staticmethod
     def block_matching(input_x, k, p, w, s):
-        def align_corners(x, s, value=0):
-            N, C, H, W = x.size()
-            i, j = (s - (H % s) + 1) % s, (s - (W % s) + 1) % s
-            x = F.pad(x, (0, j, 0, i), mode='constant', value=value)
-            x[:, :, [H-1, H-1+i], :W-1:s] = x[:, :, [H-1+i, H-1], :W-1:s]
-            x[:, :, :H-1:s, [W-1, W-1+j]] = x[:, :, :H-1:s, [W-1+j, W-1]]
-            x[:, :, [H-1, H-1+i], [W-1, W-1+j]] = x[:, :, [H-1+i, H-1], [W-1+j, W-1]]
-            return x
-        
+        """ supports only N=1 (one image ) """
+
+        def block_matching_aux(input_x, input_x_pad, k, p, v, s):
+            N, C, H, W = input_x.size()
+            w_large = 2*v + p
+            Href, Wref = math.ceil((H - p + 1) / s), math.ceil((W - p + 1) / s) # number of reference patches along each axis for unfold with stride=s
+
+            ref_patches = F.unfold(input_x, p, stride=s).transpose(1, 2).view(N, -1, p, p)
+            local_windows = F.unfold(input_x_pad, w_large, stride=s).transpose(1, 2).view(N, -1, w_large, w_large).contiguous()
+            scalar_product = F.conv2d(local_windows, ref_patches.view(-1, 1, p, p).contiguous() / p**2, groups=Href*Wref)
+            norm_patches = F.avg_pool2d(local_windows**2, p, stride=1)
+            distances = torch.nan_to_num(norm_patches - 2 * scalar_product, nan=float('inf'))
+            distances[:, :, v, v] = -float('inf') # the reference patch is always taken
+            distances = distances.view(N, Href*Wref, -1)
+            indices = torch.topk(distances, k, dim=2, largest=False, sorted=True).indices.view(N, Href, Wref, k).permute(0, 3, 1, 2)
+            
+            return indices
+
         v = w // 2
+        w_large = 2*v + p
+        input_x_pad = F.pad(input_x, [v]*4, mode='constant', value=float('inf'))
         N, C, H, W = input_x.size() 
-        patches = F.unfold(input_x, p).view(N, C*p**2, H-p+1, W-p+1)
-        patches = align_corners(patches, s, value=float('inf'))
-        ref_patches = patches[:, :, ::s, ::s].permute(0, 2, 3, 1).contiguous()
-        pad_patches = F.pad(patches, (v, v, v, v), mode='constant', value=float('inf')).permute(0, 2, 3, 1).contiguous()
-        hr, wr, hp, wp = ref_patches.size(1), ref_patches.size(2), patches.size(2), patches.size(3)
-        dist = torch.empty(N, w**2, hr, wr, dtype=input_x.dtype, device=input_x.device)
-        
-        for i in range(w):
-            for j in range(w): 
-                if i != v or j != v: 
-                    dist[:, i*w+j, :, :] = F.pairwise_distance(pad_patches[:, i:i+hp:s, j:j+wp:s, :], ref_patches)
-                
-        dist[:, v*w+v, :, :] = -float('inf') # the similarity matrices include the reference patch     
-        indices = torch.topk(dist, k, dim=1, largest=False, sorted=False).indices
 
+        ind_H_ref = torch.arange(0, H-p+1, step=s, device=input_x.device)      
+        ind_W_ref = torch.arange(0, W-p+1, step=s, device=input_x.device)
+        if (H - p + 1) % s != 1:
+            ind_H_ref = torch.cat((ind_H_ref, torch.tensor([H - p], device=input_x.device)), dim=0)
+        if (W - p + 1) % s != 1:
+            ind_W_ref = torch.cat((ind_W_ref, torch.tensor([W - p], device=input_x.device)), dim=0)
+        ind_H_ref, ind_W_ref = ind_H_ref.view(1, 1, -1, 1), ind_W_ref.view(1, 1, 1, -1)
+        ind_H_ref, ind_W_ref = ind_H_ref.expand(N, k, -1, ind_W_ref.size(3)), ind_W_ref.expand(N, k, ind_H_ref.size(2), -1)
+
+
+        indices = block_matching_aux(input_x, input_x_pad, k, p, v, s)
+        if (H - p + 1) % s != 1:
+            indices_H = block_matching_aux(input_x[:, :, -p:, :], input_x_pad[:, :, -w_large:, :], k, p, v, s)
+            indices = torch.cat((indices, indices_H), dim=2)
+        if (W - p + 1) % s != 1:
+            indices_W = block_matching_aux(input_x[:, :, :, -p:], input_x_pad[:, :, :, -w_large:], k, p, v, s)
+            if (H - p + 1) % s != 1:
+                indices_HW = block_matching_aux(input_x[:, :, -p:, -p:], input_x_pad[:, :, -w_large:, -w_large:], k, p, v, s)
+                indices_W = torch.cat((indices_W, indices_HW), dim=2)
+            indices = torch.cat((indices, indices_W), dim=3)
+        
         # (ind_row, ind_col) is a 2d-representation of indices
-        ind_row = torch.div(indices, w, rounding_mode='floor') - v
-        ind_col = torch.fmod(indices, w) - v
+        ind_row = torch.div(indices, 2*v+1, rounding_mode='floor') - v
+        ind_col = torch.fmod(indices, 2*v+1) - v
         
-        # (ind_row_ref, ind_col_ref) indicates, for each reference patch, the indice of its row and column
-        ind_row_ref = align_corners(torch.arange(H-p+1, device=input_x.device).view(1, 1, -1, 1), s)[:, :, ::s, :].expand(N, k, -1, wr)
-        ind_col_ref = align_corners(torch.arange(W-p+1, device=input_x.device).view(1, 1, 1, -1), s)[:, :, :, ::s].expand(N, k, hr, -1)
-        
-        # (indices_row, indices_col) indicates, for each reference patch, the indices of its most similar patches 
-        indices_row = (ind_row_ref + ind_row).clip(max=H-p)
-        indices_col = (ind_col_ref + ind_col).clip(max=W-p)
-
         # from 2d to 1d representation of indices 
-        indices = (indices_row * (W-p+1) + indices_col).view(N, k, -1).transpose(1, 2).reshape(N, -1)
+        indices = ((ind_H_ref + ind_row) * (W-p+1) + (ind_W_ref + ind_col)).view(N, k, -1).transpose(1, 2).reshape(N, -1)
         return indices
     
     @staticmethod 
@@ -189,11 +200,11 @@ class NLRidge(nn.Module):
         x_hat = self.aggregate(X_hat, weights, indices, H, W, p)
         return x_hat
         
-    def forward(self, input_y, noise_type='gaussian-homoscedastic',\
-                        sigma=25.0, a_pois=1.0, b_pois=0.0,\
+    def forward(self, input_y, sigma=25.0, a_pois=1.0, b_pois=0.0,\
+                        noise_type='gaussian-homoscedastic',\
                         p1=7, p2=7, k1=18, k2=55, w=37, s=4,\
                         constraints='linear'):
-        self.set_parameters(noise_type, sigma, a_pois, b_pois, p1, p2, k1, k2, w, s, constraints)
+        self.set_parameters(sigma, a_pois, b_pois, noise_type, p1, p2, k1, k2, w, s, constraints)
         den1 = self.step1(input_y)
         den2 = self.step2(input_y, den1)
         return den2
