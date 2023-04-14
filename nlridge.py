@@ -7,7 +7,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
 
 class NLRidge(nn.Module):
     def __init__(self):
@@ -32,56 +31,50 @@ class NLRidge(nn.Module):
          
     @staticmethod
     def block_matching(input_x, k, p, w, s):
-        """ supports only N=1 (one image ) """
-
-        def block_matching_aux(input_x, input_x_pad, k, p, v, s):
-            N, C, H, W = input_x.size()
-            w_large = 2*v + p
-            Href, Wref = math.ceil((H - p + 1) / s), math.ceil((W - p + 1) / s) # number of reference patches along each axis for unfold with stride=s
-
-            ref_patches = F.unfold(input_x, p, stride=s).transpose(1, 2).view(N, -1, p, p)
-            local_windows = F.unfold(input_x_pad, w_large, stride=s).transpose(1, 2).view(N, -1, w_large, w_large).contiguous()
-            scalar_product = F.conv2d(local_windows, ref_patches.view(-1, 1, p, p).contiguous() / p**2, groups=Href*Wref)
-            norm_patches = F.avg_pool2d(local_windows**2, p, stride=1)
-            distances = torch.nan_to_num(norm_patches - 2 * scalar_product, nan=float('inf'))
-            distances[:, :, v, v] = -float('inf') # the reference patch is always taken
-            distances = distances.view(N, Href*Wref, -1)
-            indices = torch.topk(distances, k, dim=2, largest=False, sorted=True).indices.view(N, Href, Wref, k).permute(0, 3, 1, 2)
-            
-            return indices
-
+        """ supports only N=1 (one image) """
         v = w // 2
         w_large = 2*v + p
         input_x_pad = F.pad(input_x, [v]*4, mode='constant', value=float('inf'))
         N, C, H, W = input_x.size() 
-
+        Href, Wref = -((H - p + 1) // -s), -((W - p + 1) // -s) # ceiling division, represents the number of reference patches along each axis for unfold with stride=s
         ind_H_ref = torch.arange(0, H-p+1, step=s, device=input_x.device)      
         ind_W_ref = torch.arange(0, W-p+1, step=s, device=input_x.device)
         if (H - p + 1) % s != 1:
             ind_H_ref = torch.cat((ind_H_ref, torch.tensor([H - p], device=input_x.device)), dim=0)
         if (W - p + 1) % s != 1:
             ind_W_ref = torch.cat((ind_W_ref, torch.tensor([W - p], device=input_x.device)), dim=0)
-        ind_H_ref, ind_W_ref = ind_H_ref.view(1, 1, -1, 1), ind_W_ref.view(1, 1, 1, -1)
-        ind_H_ref, ind_W_ref = ind_H_ref.expand(N, k, -1, ind_W_ref.size(3)), ind_W_ref.expand(N, k, ind_H_ref.size(2), -1)
-
-
-        indices = block_matching_aux(input_x, input_x_pad, k, p, v, s)
-        if (H - p + 1) % s != 1:
-            indices_H = block_matching_aux(input_x[:, :, -p:, :], input_x_pad[:, :, -w_large:, :], k, p, v, s)
-            indices = torch.cat((indices, indices_H), dim=2)
-        if (W - p + 1) % s != 1:
-            indices_W = block_matching_aux(input_x[:, :, :, -p:], input_x_pad[:, :, :, -w_large:], k, p, v, s)
-            if (H - p + 1) % s != 1:
-                indices_HW = block_matching_aux(input_x[:, :, -p:, -p:], input_x_pad[:, :, -w_large:, -w_large:], k, p, v, s)
-                indices_W = torch.cat((indices_W, indices_HW), dim=2)
-            indices = torch.cat((indices, indices_W), dim=3)
+        ind_H_ref, ind_W_ref = ind_H_ref.view(1, -1, 1, 1), ind_W_ref.view(1, 1, -1, 1)
+        ind_H_ref, ind_W_ref = ind_H_ref.expand(N, -1, ind_W_ref.size(2), k), ind_W_ref.expand(N, ind_H_ref.size(1), -1, k)
         
+        def block_matching_aux(input_x, input_x_pad, k, p, v, s):
+            N, C, H, W = input_x.size()
+            w_large = 2*v + p
+            Href, Wref = -((H - p + 1) // -s), -((W - p + 1) // -s) # ceiling division, represents the number of reference patches along each axis for unfold with stride=s
+            ref_patches = F.unfold(input_x, p, stride=s).transpose(1, 2).view(N, -1, p, p)
+            local_windows = F.unfold(input_x_pad, w_large, stride=s).transpose(1, 2).view(N, -1, w_large, w_large)
+            scalar_product = F.conv2d(local_windows, ref_patches.view(-1, 1, p, p) / p**2, groups=Href*Wref) # assumes that N = 1
+            norm_patches = F.avg_pool2d(local_windows**2, p, stride=1)
+            distances = torch.nan_to_num(norm_patches - 2 * scalar_product, nan=float('inf'))
+            distances[:, :, v, v] = -float('inf') # the reference patch is always taken
+            distances = distances.view(N, Href*Wref, -1)
+            indices = torch.topk(distances, k, dim=2, largest=False, sorted=True).indices.view(N, Href, Wref, k)
+            return indices
+
+        indices = torch.empty_like(ind_H_ref)
+        indices[:, :Href, :Wref, :] = block_matching_aux(input_x, input_x_pad, k, p, v, s)
+        if (H - p + 1) % s != 1:
+            indices[:, Href:, :Wref, :] = block_matching_aux(input_x[:, :, -p:, :], input_x_pad[:, :, -w_large:, :], k, p, v, s)
+        if (W - p + 1) % s != 1:
+            indices[:, :Href, Wref:, :] = block_matching_aux(input_x[:, :, :, -p:], input_x_pad[:, :, :, -w_large:], k, p, v, s)
+            if (H - p + 1) % s != 1:
+                indices[:, Href:, Wref:, :] = block_matching_aux(input_x[:, :, -p:, -p:], input_x_pad[:, :, -w_large:, -w_large:], k, p, v, s)
+                
         # (ind_row, ind_col) is a 2d-representation of indices
         ind_row = torch.div(indices, 2*v+1, rounding_mode='floor') - v
         ind_col = torch.fmod(indices, 2*v+1) - v
         
         # from 2d to 1d representation of indices 
-        indices = ((ind_H_ref + ind_row) * (W-p+1) + (ind_W_ref + ind_col)).view(N, k, -1).transpose(1, 2).reshape(N, -1)
+        indices = ((ind_H_ref + ind_row) * (W-p+1) + (ind_W_ref + ind_col)).view(N, -1)
         return indices
     
     @staticmethod 
