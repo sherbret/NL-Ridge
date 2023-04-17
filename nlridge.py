@@ -4,6 +4,10 @@
 # Name : NL-Ridge
 # Copyright (C) Inria,  Sébastien Herbreteau, Charles Kervrann, All Rights Reserved, 2022, v1.0.
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 class NLRidge(nn.Module):
     def __init__(self):
         super(NLRidge, self).__init__()
