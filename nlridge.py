@@ -4,10 +4,6 @@
 # Name : NL-Ridge
 # Copyright (C) Inria,  Sébastien Herbreteau, Charles Kervrann, All Rights Reserved, 2022, v1.0.
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
 class NLRidge(nn.Module):
     def __init__(self):
         super(NLRidge, self).__init__()
@@ -31,7 +27,9 @@ class NLRidge(nn.Module):
          
     @staticmethod
     def block_matching(input_x, k, p, w, s):
-        """ supports only N=1 (one image) """
+        if input_x.device == torch.device("cuda:0"): 
+            input_x = input_x.half()
+
         v = w // 2
         w_large = 2*v + p
         input_x_pad = F.pad(input_x, [v]*4, mode='constant', value=float('inf'))
@@ -50,9 +48,9 @@ class NLRidge(nn.Module):
             N, C, H, W = input_x.size()
             w_large = 2*v + p
             Href, Wref = -((H - p + 1) // -s), -((W - p + 1) // -s) # ceiling division, represents the number of reference patches along each axis for unfold with stride=s
-            ref_patches = F.unfold(input_x, p, stride=s).transpose(1, 2).view(N, -1, p, p)
-            local_windows = F.unfold(input_x_pad, w_large, stride=s).transpose(1, 2).view(N, -1, w_large, w_large)
-            scalar_product = F.conv2d(local_windows, ref_patches.view(-1, 1, p, p) / p**2, groups=Href*Wref) # assumes that N = 1
+            ref_patches = F.unfold(input_x, p, stride=s).transpose(1, 2).reshape(N*Href*Wref, 1, p, p)
+            local_windows = F.unfold(input_x_pad, w_large, stride=s).transpose(1, 2).reshape(1, N*Href*Wref, w_large, w_large)
+            scalar_product = F.conv2d(local_windows, ref_patches / p**2, groups=N*Href*Wref) # assumes that N = 1
             norm_patches = F.avg_pool2d(local_windows**2, p, stride=1)
             distances = torch.nan_to_num(norm_patches - 2 * scalar_product, nan=float('inf'))
             distances[:, :, v, v] = -float('inf') # the reference patch is always taken
@@ -100,7 +98,8 @@ class NLRidge(nn.Module):
     
     def variance_groups(self, X, indices, k, p):
         if self.noise_type=='gaussian-homoscedastic':
-            V = self.sigma**2 * torch.ones(X.size(0), 1, k, p**2, dtype=X.dtype, device=X.device)
+            N, _, k, p = X.size()
+            V = self.sigma**2 * torch.ones(N, 1, k, p, dtype=X.dtype, device=X.device)
         elif self.noise_type=='gaussian-heteroscedastic':
             V = self.gather_groups(self.sigma**2, indices, k, p)
         elif self.noise_type=='poisson':
