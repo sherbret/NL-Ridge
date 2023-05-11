@@ -25,6 +25,15 @@ To denoise an image with NL-Ridge (remove ``--add_noise`` if it is already noisy
 python ./demo.py --sigma 15 --add_noise --in ./test_images/barbara.png --out ./denoised.png
 ```
 
+Or use directly the Pytorch class NL-Ridge within your code:
+```
+m_nlridge = NLRidge() # instantiate the NL-Ridge class
+y = 5 * torch.randn(1, 1, 100, 100) # image of pure Gaussian noise with variance 5^2
+x_hat = m_nlridge(y, sigma=5, noise_type='gaussian-homoscedastic', constraints='affine', p1=7, p2=7, k1=18, k2=55, w=37, s=4) 
+```
+(see the meaning of the parameters in file nlridge.py, method set_parameters)
+
+
 ## Results
 
 ### Gray denoising
