@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 class NLRidge(nn.Module):
     def __init__(self):
-        super(NLRidge, self).__init__()
+        super().__init__()
         self.set_parameters()
 
     def set_parameters(self, sigma=25.0, a_pois=1.0, b_pois=0.0,\
