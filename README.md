@@ -7,6 +7,7 @@ Here is the list of libraries you need to install to execute the code:
 * Python 3.8
 * Pytorch 2.0
 * Torchvision 0.15.1
+* Einops 0.7.0
 
 ## Install
 
