@@ -50,22 +50,22 @@ class NLRidge(nn.Module):
         Href_all, Wref_all = ind_H_ref.size(0), ind_W_ref.size(0)
         ind_H_ref = repeat(ind_H_ref, 'h -> n h w k', n=N, w=Wref_all, k=k)   
         ind_W_ref = repeat(ind_W_ref, 'w -> n h w k', n=N, h=Href_all, k=k)   
-        
+
         def block_matching_aux(input_x, input_x_pad, k, p, v, s):
-            N, C, H, W = input_x.size()
+            N, C, H, W = input_x.size() 
+            assert C == 1
             w_large = 2*v + p
             Href, Wref = -((H - p + 1) // -s), -((W - p + 1) // -s) # ceiling division, represents the number of reference patches along each axis for unfold with stride=s
             ref_patches = F.unfold(input_x, p, stride=s)
             ref_patches = rearrange(ref_patches, 'n (p1 p2) l -> (n l) 1 p1 p2', p1=p)
             local_windows = F.unfold(input_x_pad, w_large, stride=s)
             local_windows = rearrange(local_windows, 'n (p1 p2) l -> 1 (n l) p1 p2', p1=w_large)
-            scalar_product = F.conv2d(local_windows, ref_patches / p**2, groups=N*Href*Wref) # assumes that N = 1
+            scalar_product = F.conv2d(local_windows, ref_patches / p**2, groups=N*Href*Wref)
             norm_patches = F.avg_pool2d(local_windows**2, p, stride=1)
             distances = torch.nan_to_num(norm_patches - 2 * scalar_product, nan=float('inf'))
             distances[:, :, v, v] = -float('inf') # the reference patch is always taken
-            distances = rearrange(distances, '1 (n l) p1 p2 -> n l (p1 p2)', n=N)
-            indices = torch.topk(distances, k, dim=2, largest=False, sorted=False).indices
-            return rearrange(indices, 'n (h w) k -> n h w k', h=Href, w=Wref)
+            distances = rearrange(distances, '1 (n h w) p1 p2 -> n h w (p1 p2)', n=N, h=Href, w=Wref)
+            return torch.topk(distances, k, dim=3, largest=False, sorted=False).indices
 
         indices = torch.empty_like(ind_H_ref)
         indices[:, :Href, :Wref, :] = block_matching_aux(input_x, input_x_pad, k, p, v, s)
@@ -86,14 +86,16 @@ class NLRidge(nn.Module):
     
     @staticmethod 
     def gather_groups(input_y, indices, k, p):
-        Y = torch.gather(F.unfold(input_y, p), dim=2, index=repeat(indices, 'n l -> n p2 l', p2=p**2))
-        return rearrange(Y, 'n p2 (l k) -> n l k p2', p2=p**2, k=k)
+        unfold_Y = F.unfold(input_y, p)
+        N, n, l = unfold_Y.shape
+        Y = torch.gather(unfold_Y, dim=2, index=repeat(indices, 'N l -> N n l', n=n))
+        return rearrange(Y, 'N n (l k) -> N l k n', k=k)
     
     @staticmethod 
     def aggregate(X_hat, weights, indices, H, W, p):
         N, _, _, n = X_hat.size()
         X = rearrange(X_hat * weights, 'n l k p2 -> n p2 (l k)')
-        weights = repeat(weights, 'n l k 1 -> n p2 (l k)', p2=p**2)
+        weights = repeat(weights, 'N l k 1 -> N n (l k)', n=n)
         X_sum = torch.zeros(N, n, (H-p+1) * (W-p+1), dtype=X.dtype, device=X.device)
         weights_sum = torch.zeros_like(X_sum)
         
@@ -120,16 +122,8 @@ class NLRidge(nn.Module):
     def compute_theta(self, Q, D):
         N, B, k, _ = Q.size()
         if self.constraints == 'linear' or self.constraints == 'affine':
-            Ik = torch.eye(k, dtype=Q.dtype, device=Q.device).expand(N, B, -1, -1)
-            L, info = torch.linalg.cholesky_ex(Q)
-            if torch.count_nonzero(info) > 0:
-                eps = 1e-6
-                m = Q.max() + eps
-                Q, D = Q / m, D / m
-                torch.diagonal(Q, dim1=-2, dim2=-1).add_(eps)
-                D.add_(eps)
-                L = torch.linalg.cholesky(Q)
-            Qinv = torch.cholesky_solve(Ik, L)
+            Ik = repeat(torch.eye(k, dtype=Q.dtype, device=Q.device), 'k1 k2 -> n b k1 k2', n=N, b=B)
+            Qinv = torch.inverse(Q) 
             if self.constraints == 'linear':
                 theta = Ik - Qinv * D.unsqueeze(-1)
             else:
