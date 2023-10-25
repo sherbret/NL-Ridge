@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, repeat
+from torchvision.transforms.functional import rgb_to_grayscale
 
 class NLRidge(nn.Module):
     def __init__(self):
@@ -34,23 +35,7 @@ class NLRidge(nn.Module):
     def block_matching(input_x, k, p, w, s):
         if input_x.device == torch.device("cuda:0"): 
             input_x = input_x.half()
-
-        v = w // 2
-        w_large = 2*v + p
-        input_x_pad = F.pad(input_x, [v]*4, mode='constant', value=float('inf'))
-        N, C, H, W = input_x.size() 
-        Href, Wref = -((H - p + 1) // -s), -((W - p + 1) // -s) # ceiling division, represents the number of reference patches along each axis for unfold with stride=s
-        ind_H_ref = torch.arange(0, H-p+1, step=s, device=input_x.device)      
-        ind_W_ref = torch.arange(0, W-p+1, step=s, device=input_x.device)
-        if (H - p + 1) % s != 1:
-            ind_H_ref = torch.cat((ind_H_ref, torch.tensor([H - p], device=input_x.device)), dim=0)
-        if (W - p + 1) % s != 1:
-            ind_W_ref = torch.cat((ind_W_ref, torch.tensor([W - p], device=input_x.device)), dim=0)
-
-        Href_all, Wref_all = ind_H_ref.size(0), ind_W_ref.size(0)
-        ind_H_ref = repeat(ind_H_ref, 'h -> n h w k', n=N, w=Wref_all, k=k)   
-        ind_W_ref = repeat(ind_W_ref, 'w -> n h w k', n=N, h=Href_all, k=k)   
-
+            
         def block_matching_aux(input_x, input_x_pad, k, p, v, s):
             N, C, H, W = input_x.size() 
             assert C == 1
@@ -67,7 +52,19 @@ class NLRidge(nn.Module):
             distances = rearrange(distances, '1 (n h w) p1 p2 -> n h w (p1 p2)', n=N, h=Href, w=Wref)
             return torch.topk(distances, k, dim=3, largest=False, sorted=False).indices
 
-        indices = torch.empty_like(ind_H_ref)
+        v = w // 2
+        w_large = 2*v + p
+        input_x_pad = F.pad(input_x, [v]*4, mode='constant', value=float('inf'))
+        N, C, H, W = input_x.size() 
+        Href, Wref = -((H - p + 1) // -s), -((W - p + 1) // -s) # ceiling division, represents the number of reference patches along each axis for unfold with stride=s
+        ind_H_ref = torch.arange(0, H-p+1, step=s, device=input_x.device)      
+        ind_W_ref = torch.arange(0, W-p+1, step=s, device=input_x.device)
+        if (H - p + 1) % s != 1:
+            ind_H_ref = torch.cat((ind_H_ref, torch.tensor([H - p], device=input_x.device)), dim=0)
+        if (W - p + 1) % s != 1:
+            ind_W_ref = torch.cat((ind_W_ref, torch.tensor([W - p], device=input_x.device)), dim=0)
+            
+        indices = torch.empty(N, ind_H_ref.size(0), ind_W_ref.size(0), k, dtype=ind_H_ref.dtype, device=ind_H_ref.device)
         indices[:, :Href, :Wref, :] = block_matching_aux(input_x, input_x_pad, k, p, v, s)
         if (H - p + 1) % s != 1:
             indices[:, Href:, :Wref, :] = block_matching_aux(input_x[:, :, -p:, :], input_x_pad[:, :, -w_large:, :], k, p, v, s)
@@ -81,7 +78,7 @@ class NLRidge(nn.Module):
         ind_col = torch.fmod(indices, 2*v+1) - v
         
         # from 2d to 1d representation of indices 
-        indices = (ind_H_ref + ind_row) * (W-p+1) + (ind_W_ref + ind_col)
+        indices = (ind_row + rearrange(ind_H_ref, 'h -> 1 h 1 1')) * (W-p+1) + (ind_col + rearrange(ind_W_ref, 'w -> 1 1 w 1'))
         return rearrange(indices, 'n h w k -> n (h w k)', n=N)
     
     @staticmethod 
@@ -122,7 +119,7 @@ class NLRidge(nn.Module):
     def compute_theta(self, Q, D):
         N, B, k, _ = Q.size()
         if self.constraints == 'linear' or self.constraints == 'affine':
-            Ik = repeat(torch.eye(k, dtype=Q.dtype, device=Q.device), 'k1 k2 -> n b k1 k2', n=N, b=B)
+            Ik = torch.eye(k, dtype=Q.dtype, device=Q.device).expand(N, B, -1, -1)
             Qinv = torch.inverse(Q) 
             if self.constraints == 'linear':
                 theta = Ik - Qinv * D.unsqueeze(-1)
@@ -171,10 +168,10 @@ class NLRidge(nn.Module):
         return X_hat, weights
          
     def step1(self, input_y):
-        _, _, H, W = input_y.size() 
+        _, C, H, W = input_y.size() 
         k, p, w, s = self.k1, self.p1, self.window, self.step
-        y_mean = torch.mean(input_y, dim=1, keepdim=True) # for color
-        indices = self.block_matching(y_mean, k, p, w, s)
+        y_grayscale = rgb_to_grayscale(input_y) if C == 3 else input_y
+        indices = self.block_matching(y_grayscale, k, p, w, s)
         Y = self.gather_groups(input_y, indices, k, p)
         V = self.variance_groups(Y, indices, k, p)
         X_hat, weights = self.denoise1(Y, V)
@@ -182,10 +179,10 @@ class NLRidge(nn.Module):
         return x_hat
         
     def step2(self, input_y, input_x):
-        _, _, H, W = input_y.size()
+        _, C, H, W = input_y.size()
         k, p, w, s = self.k2, self.p2, self.window, self.step
-        x_mean = torch.mean(input_x, dim=1, keepdim=True) # for color
-        indices = self.block_matching(x_mean, k, p, w, s)
+        x_grayscale = rgb_to_grayscale(input_x) if C == 3 else input_x
+        indices = self.block_matching(x_grayscale, k, p, w, s)
         Y = self.gather_groups(input_y, indices, k, p)
         X = self.gather_groups(input_x, indices, k, p)
         V = self.variance_groups(X, indices, k, p)
@@ -197,6 +194,10 @@ class NLRidge(nn.Module):
                         noise_type='gaussian-homoscedastic',\
                         p1=7, p2=7, k1=18, k2=55, w=37, s=4,\
                         constraints='linear'):
+        # Recommended parameters for additive white Gaussian noise:
+            # 0 < σ ≤ 15: p1=7, p2=7, k1=18, k2=55
+            # 15 < σ ≤ 35: p1=9, p2=9, k1=18, k2=90
+            # 35 < σ ≤ 50: p1=11, p2=9, k1=20, k2=120
         self.set_parameters(sigma, a_pois, b_pois, noise_type, p1, p2, k1, k2, w, s, constraints)
         den1 = self.step1(input_y)
         den2 = self.step2(input_y, den1)
