@@ -36,6 +36,11 @@ class NLRidge(nn.Module):
         if input_x.device == torch.device("cuda:0"): 
             input_x = input_x.half()
             
+            @staticmethod
+    def block_matching(input_x, k, p, w, s):
+        if input_x.device == torch.device("cuda:0"): 
+            input_x = input_x.half()
+            
         def block_matching_aux(input_x, input_x_pad, k, p, v, s):
             N, C, H, W = input_x.size() 
             assert C == 1
@@ -47,14 +52,15 @@ class NLRidge(nn.Module):
             local_windows = rearrange(local_windows, 'n (p1 p2) l -> 1 (n l) p1 p2', p1=w_large)
             scalar_product = F.conv2d(local_windows, ref_patches / p**2, groups=N*Href*Wref)
             norm_patches = F.avg_pool2d(local_windows**2, p, stride=1)
-            distances = torch.nan_to_num(norm_patches - 2 * scalar_product, nan=float('inf'))
+            distances = norm_patches - 2 * scalar_product # (up to a constant)
             distances[:, :, v, v] = -float('inf') # the reference patch is always taken
             distances = rearrange(distances, '1 (n h w) p1 p2 -> n h w (p1 p2)', n=N, h=Href, w=Wref)
-            return torch.topk(distances, k, dim=3, largest=False, sorted=False).indices
+            indices = torch.topk(distances, k, dim=3, largest=False, sorted=False).indices # float('nan') is considered to be the highest value for topk 
+            return indices
 
         v = w // 2
         w_large = 2*v + p
-        input_x_pad = F.pad(input_x, [v]*4, mode='constant', value=float('inf'))
+        input_x_pad = F.pad(input_x, [v]*4, mode='constant', value=float('nan'))
         N, C, H, W = input_x.size() 
         Href, Wref = -((H - p + 1) // -s), -((W - p + 1) // -s) # ceiling division, represents the number of reference patches along each axis for unfold with stride=s
         ind_H_ref = torch.arange(0, H-p+1, step=s, device=input_x.device)      
