@@ -48,7 +48,7 @@ class NLRidge(nn.Module):
             scalar_product = F.conv2d(local_windows, ref_patches / p**2, groups=N*Href*Wref)
             norm_patches = F.avg_pool2d(local_windows**2, p, stride=1)
             distances = norm_patches - 2 * scalar_product # (up to a constant)
-            distances[:, :, v, v] = -float('inf') # the reference patch is always taken
+            distances[:, :, v, v] = float('-inf') # the reference patch is always taken
             distances = rearrange(distances, '1 (n h w) p1 p2 -> n h w (p1 p2)', n=N, h=Href, w=Wref)
             indices = torch.topk(distances, k, dim=3, largest=False, sorted=False).indices # float('nan') is considered to be the highest value for topk 
             return indices
