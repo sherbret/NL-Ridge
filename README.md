@@ -4,9 +4,9 @@ Sébastien Herbreteau and Charles Kervrann
 ## Requirements
 
 Here is the list of libraries you need to install to execute the code:
-* Python 3.8
-* Pytorch 2.1
-* Torchvision 0.16
+* Python 3.11
+* Pytorch 2.2
+* Torchvision 0.17
 * Einops 0.7.0
 
 ## Install
