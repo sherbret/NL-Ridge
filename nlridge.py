@@ -33,8 +33,6 @@ class NLRidge(nn.Module):
          
     @staticmethod
     def block_matching(input_x, k, p, w, s):
-        if input_x.device != torch.device("cpu"): 
-            input_x = input_x.half()
             
         def block_matching_aux(input_x_pad, k, p, v, s):
             N, C, H, W = input_x_pad.size() 
