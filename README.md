@@ -66,3 +66,15 @@ Running time (in seconds) of different methods on images of size 256x256. Run ti
 ## Acknowledgements
 
 This work was supported by Bpifrance agency (funding) through the LiChIE contract. Computations  were performed on the Inria Rennes computing grid facilities partly funded by France-BioImaging infrastructure (French National Research Agency - ANR-10-INBS-04-07, “Investments for the future”).
+
+
+## Citation
+```BibTex
+@INPROCEEDINGS{herbreteau2022nlridge,
+  author={Herbreteau, Sébastien and Kervrann, Charles},
+  booktitle={IEEE International Conference on Image Processing (ICIP)}, 
+  title={Towards a Unified View of Unsupervised Non-Local Methods for Image Denoising: The NL-Ridge Approach}, 
+  year={2022},
+  pages={3376-3380},
+  doi={10.1109/ICIP46576.2022.9897992}}
+```
