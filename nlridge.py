@@ -13,32 +13,8 @@ class NLRidge(nn.Module):
     """ A PyTorch module implementing NL-Ridge denoising algorithm. """
 
     def __init__(self):
-        """ Initializes the NL-Ridge module and sets default parameters. """
+        """ Initializes the NL-Ridge module. """
         super().__init__()
-        self.set_parameters()
-        
-    def set_parameters(self, sigma=25.0, a_pois=1.0, b_pois=0.0,
-                    noise_type='gaussian-homoscedastic',
-                    p1=7, p2=7, k1=18, k2=55, w=37, s=4,
-                    constraints='linear'):
-        """
-        Sets the parameters for the denoising algorithm.
-        
-        Args:
-            sigma (float): Standard deviation of the Gaussian noise.
-            a_pois (float): a parameter of the Poisson-Gaussian noise.
-            b_pois (float): b parameter of the Poisson-Gaussian noise.
-            noise_type (str): Type of noise ('gaussian-homoscedastic', 'gaussian-heteroscedastic', 'poisson', or 'poisson-gaussian').
-            p1 (int): Patch size for the first step.
-            p2 (int): Patch size for the second step.
-            k1 (int): Number of similar patches for the first step.
-            k2 (int): Number of similar patches for the second step.
-            w (int): Size of the search window (odd number).
-            s (int): Moving step size from one reference patch to another.
-            constraints (str): Type of constraints ('linear', 'affine', 'conical', or 'convex').
-        """
-        for key, value in locals().items():
-            if key != "self": setattr(self, key, value)
          
     @staticmethod
     def block_matching(input_x, k, p, w, s):
@@ -348,7 +324,9 @@ class NLRidge(nn.Module):
         Returns:
             torch.FloatTensor: Final denoised image, shape (N, C, H, W).
         """
-        self.set_parameters(sigma, a_pois, b_pois, noise_type, p1, p2, k1, k2, w, s, constraints)
+        # Set parameters
+        for key, value in locals().items(): 
+            if key != "self": setattr(self, key, value)
         den1 = self.step1(input_y)
         den2 = self.step2(input_y, den1)
         return den2
