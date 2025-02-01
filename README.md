@@ -1,4 +1,4 @@
-# Towards a unified view of unsupervised non-local methods for image denoising: the NL-Ridge approach
+# NL-Ridge denoising algorithm
 Sébastien Herbreteau and Charles Kervrann
 
 ## Requirements
@@ -12,7 +12,6 @@ Here is the list of libraries you need to install to execute the code:
 ## Install
 
 To install in an environment using pip:
-
 ```
 python -m venv .nlridge_env
 source .nlridge_env/bin/activate
@@ -70,8 +69,18 @@ This work was supported by Bpifrance agency (funding) through the LiChIE contrac
 
 ## Citation
 ```BibTex
+@ARTICLE{herbreteau2025nlridge,
+  author = {Herbreteau, S\'{e}bastien and Kervrann, Charles},
+  title = {A Unified Framework of Nonlocal Parametric Methods for Image Denoising},
+  journal = {SIAM Journal on Imaging Sciences},
+  volume = {18},
+  number = {1},
+  pages = {89-119},
+  year = {2025},
+  doi = {10.1137/24M1630967}}
+
 @INPROCEEDINGS{herbreteau2022nlridge,
-  author={Herbreteau, Sébastien and Kervrann, Charles},
+  author = {Herbreteau, S\'{e}bastien and Kervrann, Charles},
   booktitle={IEEE International Conference on Image Processing (ICIP)}, 
   title={Towards a Unified View of Unsupervised Non-Local Methods for Image Denoising: The NL-Ridge Approach}, 
   year={2022},

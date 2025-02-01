@@ -296,15 +296,15 @@ class NLRidge(nn.Module):
         x_hat = self.aggregate(X_hat, weights, indices, H, W, p)
         return x_hat
         
-    def forward(self, input_y, sigma=25.0, a_pois=1.0, b_pois=0.0,\
+    def forward(self, y, sigma=25.0, a_pois=1.0, b_pois=0.0,\
                         noise_type='gaussian-homoscedastic',\
                         p1=7, p2=7, k1=18, k2=55, w=37, s=4,\
                         constraints='linear'):
         """
-        Executes the full denoising process on the input image.
+        Executes NL-Ridge denoising algorithm on the input noisy image.
     
         Args:
-            input_y (torch.FloatTensor): Noisy input image, shape (N, C, H, W).
+            y (torch.FloatTensor): Noisy input image, shape (N, C, H, W).
             sigma (float or torch.FloatTensor of shape (N, *)): Standard deviation of the Gaussian noise.
             a_pois (float): a parameter of the Poisson-Gaussian noise.
             b_pois (float): b parameter of the Poisson-Gaussian noise.
@@ -327,7 +327,7 @@ class NLRidge(nn.Module):
         """
         # Set parameters
         for key, value in locals().items(): 
-            if key != "self": setattr(self, key, value)
-        den1 = self.step1(input_y)
-        den2 = self.step2(input_y, den1)
+            if key != "self" and key != "y": setattr(self, key, value) 
+        den1 = self.step1(y)
+        den2 = self.step2(y, den1)
         return den2
