@@ -148,7 +148,7 @@ class NLRidge(nn.Module):
             p (int): Patch size.
 
         Returns:
-            torch.Tensor: Reconstructed image tensor.
+            torch.FloatTensor: Reconstructed image tensor.
         """
         N, _, _, _, n = X_hat.size()
         X = rearrange(X_hat * weights, 'N h w k n -> (N h w k) n')
@@ -346,7 +346,7 @@ class NLRidge(nn.Module):
             - 35 < σ ≤ 50: p1=11, p2=9, k1=20, k2=120
     
         Returns:
-            torch.Tensor: Final denoised image, shape (N, C, H, W).
+            torch.FloatTensor: Final denoised image, shape (N, C, H, W).
         """
         self.set_parameters(sigma, a_pois, b_pois, noise_type, p1, p2, k1, k2, w, s, constraints)
         den1 = self.step1(input_y)
