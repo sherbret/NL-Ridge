@@ -184,14 +184,14 @@ class NLRidge(nn.Module):
             Ik = torch.eye(k, dtype=Q.dtype, device=Q.device)
             Qinv = torch.inverse(Q) 
             if self.constraints == 'linear':
-                theta = Ik - Qinv * D.unsqueeze(-1)
+                theta = Ik - Qinv * D
             else:
                 Qinv1 = torch.sum(Qinv, dim=-1, keepdim=True)
                 Qinv2 = torch.sum(Qinv1, dim=-2, keepdim=True)
-                theta = Ik - (Qinv - Qinv1 @ Qinv1.transpose(-2, -1) / Qinv2) * D.unsqueeze(-1)
+                theta = Ik - (Qinv - Qinv1 @ Qinv1.transpose(-2, -1) / Qinv2) * D
         elif self.constraints == 'conical' or self.constraints == 'convex':
             # Coordinate descent algorithm
-            C = torch.diag_embed(D) - Q
+            C = torch.diag_embed(D.squeeze(-1)) - Q
             theta = torch.ones_like(Q) / k
             for _ in range(1000):
                 for i in range(k): 
@@ -224,9 +224,11 @@ class NLRidge(nn.Module):
                 weights: Patch weights, shape (N, Href, Wref, k, 1).
         """
         _, _, _, k, n = Y.shape
-        D = torch.sum(V, dim=-1)
+        D = torch.sum(V, dim=-1, keepdim=True)
         Q = Y @ Y.transpose(-2, -1)
-        alpha = 0.25 * torch.mean(V, dim=(1, 2, 3, 4)) # alpha > 0 -> noisier risk which ensures positive definiteness
+        alpha = 0.25 * torch.mean(V, dim=(1, 2, 3, 4), keepdim=True) # alpha > 0 -> noisier risk which ensures positive definiteness
+        print(alpha.shape)
+        print(D.shape)
         theta = self.compute_theta(Q + n * alpha * torch.eye(k, dtype=Y.dtype, device=Y.device), D + n * alpha)
         X_hat = theta @ Y
         weights = 1 / torch.sum(theta**2, dim=-1, keepdim=True).clip(1/k, 1)
