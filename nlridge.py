@@ -327,6 +327,7 @@ class NLRidge(nn.Module):
         Executes the full denoising process on the input image.
     
         Args:
+            input_y (torch.FloatTensor): Noisy input image, shape (N, C, H, W).
             sigma (float): Standard deviation of the Gaussian noise.
             a_pois (float): a parameter of the Poisson-Gaussian noise.
             b_pois (float): b parameter of the Poisson-Gaussian noise.
