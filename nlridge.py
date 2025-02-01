@@ -174,7 +174,7 @@ class NLRidge(nn.Module):
     
         Args:
             Q (torch.FloatTensor): Q matrix, shape (N, Href, Wref, k, k).
-            D (torch.FloatTensor): Diagonal matrix, shape (*, k).
+            D (torch.FloatTensor): Diagonal matrix, shape (*, k, 1).
     
         Returns:
             torch.FloatTensor: Theta matrix, shape (N, Href, Wref, k, k).
@@ -224,12 +224,10 @@ class NLRidge(nn.Module):
                 weights: Patch weights, shape (N, Href, Wref, k, 1).
         """
         _, _, _, k, n = Y.shape
-        D = torch.sum(V, dim=-1, keepdim=True)
+        D = torch.sum(V, dim=-1)
         Q = Y @ Y.transpose(-2, -1)
         alpha = 0.25 * torch.mean(V, dim=(1, 2, 3, 4), keepdim=True) # alpha > 0 -> noisier risk which ensures positive definiteness
-        print(alpha.shape)
-        print(D.shape)
-        theta = self.compute_theta(Q + n * alpha * torch.eye(k, dtype=Y.dtype, device=Y.device), D + n * alpha)
+        theta = self.compute_theta(Q + n * alpha * torch.eye(k, dtype=Y.dtype, device=Y.device), D.unsqueeze(-1) + n * alpha)
         X_hat = theta @ Y
         weights = 1 / torch.sum(theta**2, dim=-1, keepdim=True).clip(1/k, 1)
         return X_hat, weights
@@ -251,7 +249,7 @@ class NLRidge(nn.Module):
         k = Y.size(-2)
         D = torch.sum(V, dim=-1)
         Q = X @ X.transpose(-2, -1) + torch.diag_embed(D)
-        theta = self.compute_theta(Q, D)
+        theta = self.compute_theta(Q, D.unsqueeze(-1))
         X_hat = theta @ Y
         weights = 1 / torch.sum(theta**2, dim=-1, keepdim=True).clip(1/k, 1)
         return X_hat, weights
