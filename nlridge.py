@@ -147,7 +147,7 @@ class NLRidge(nn.Module):
         Computes the variance per pixel.
 
         Args:
-            X (torch.FloatTensor): Grouped patches of shape (N, Href, Wref, k, p**2).
+            X (torch.FloatTensor): Grouped patches of shape (N, Href, Wref, k, n).
             indices (torch.LongTensor): Indices of the patches in the original image of shape (N, Href, Wref, k).  
             p (int): Patch size.
 
@@ -155,8 +155,9 @@ class NLRidge(nn.Module):
             V (torch.FloatTensor): Variance per pixel (*, k, n).
         """
         if self.noise_type=='gaussian-homoscedastic':
-            _, _, _, k, n = X.shape 
-            V = self.sigma**2 * torch.ones(k, n, dtype=X.dtype, device=X.device)
+            N, _, _, k, n = X.shape 
+            if isinstance(self.sigma, torch.Tensor): self.sigma = self.sigma.view(N, 1, 1, 1, 1) 
+            V = self.sigma**2 * torch.ones(1, 1, 1, k, n, dtype=X.dtype, device=X.device)
         elif self.noise_type=='gaussian-heteroscedastic':
             V = self.gather_groups(self.sigma**2, indices, p)
         elif self.noise_type=='poisson':
@@ -225,8 +226,8 @@ class NLRidge(nn.Module):
         _, _, _, k, n = Y.shape
         D = torch.sum(V, dim=-1)
         Q = Y @ Y.transpose(-2, -1)
-        alpha = 0.5 # alpha > 0 -> noisier risk which ensures positive definiteness
-        theta = self.compute_theta(Q + n * alpha**2 * torch.eye(k, dtype=Y.dtype, device=Y.device), D + n * alpha**2)
+        alpha = 0.25 * torch.mean(V, dim=(1, 2, 3, 4)) # alpha > 0 -> noisier risk which ensures positive definiteness
+        theta = self.compute_theta(Q + n * alpha * torch.eye(k, dtype=Y.dtype, device=Y.device), D + n * alpha)
         X_hat = theta @ Y
         weights = 1 / torch.sum(theta**2, dim=-1, keepdim=True).clip(1/k, 1)
         return X_hat, weights
@@ -304,7 +305,7 @@ class NLRidge(nn.Module):
     
         Args:
             input_y (torch.FloatTensor): Noisy input image, shape (N, C, H, W).
-            sigma (float): Standard deviation of the Gaussian noise.
+            sigma (float or torch.FloatTensor of shape (N, *)): Standard deviation of the Gaussian noise.
             a_pois (float): a parameter of the Poisson-Gaussian noise.
             b_pois (float): b parameter of the Poisson-Gaussian noise.
             noise_type (str): Type of noise ('gaussian-homoscedastic', 'gaussian-heteroscedastic', 'poisson', or 'poisson-gaussian').
