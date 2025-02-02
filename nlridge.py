@@ -178,24 +178,24 @@ class NLRidge(nn.Module):
     
         Args:
             Q (torch.FloatTensor): Q matrix, shape (N, Href, Wref, k, k).
-            D (torch.FloatTensor): Diagonal matrix, shape (*, k, 1).
+            D (torch.FloatTensor): Diagonal matrix, shape (*, k).
     
         Returns:
             torch.FloatTensor: Theta matrix, shape (N, Href, Wref, k, k).
         """
-        k = Q.size(-2)
+        k = Q.size(-1)
         if self.constraints == 'linear' or self.constraints == 'affine':
             Ik = torch.eye(k, dtype=Q.dtype, device=Q.device)
-            Qinv = torch.inverse(Q) 
             if self.constraints == 'linear':
-                theta = Ik - Qinv * D
+                theta = Ik - torch.linalg.solve(Q, torch.diag_embed(D)) 
             else:
+                Qinv = torch.inverse(Q)
                 Qinv1 = torch.sum(Qinv, dim=-1, keepdim=True)
                 Qinv2 = torch.sum(Qinv1, dim=-2, keepdim=True)
-                theta = Ik - (Qinv - Qinv1 @ Qinv1.transpose(-2, -1) / Qinv2) * D
+                theta = Ik - (Qinv - Qinv1 @ Qinv1.transpose(-2, -1) / Qinv2) * D.unsqueeze(-1)
         elif self.constraints == 'conical' or self.constraints == 'convex':
             # Coordinate descent algorithm
-            C = torch.diag_embed(D.squeeze(-1)) - Q
+            C = torch.diag_embed(D) - Q
             theta = torch.ones_like(Q) / k
             for _ in range(1000):
                 for i in range(k): 
@@ -212,7 +212,7 @@ class NLRidge(nn.Module):
                         theta[..., j:j+1, :] -= alpha
         else:
             raise ValueError('constraints must be either linear, affine, conical or convex.')
-        return theta.transpose(-2, -1)
+        return theta
  
     def denoise1(self, Y, V):
         """
@@ -232,8 +232,8 @@ class NLRidge(nn.Module):
         Q = Y @ Y.transpose(-2, -1)
         alpha = 0.05 # when alpha > 0 -> noisier risk which ensures well conditionning
         D_add = alpha * D
-        theta = self.compute_theta(Q + torch.diag_embed(D_add), (D+D_add).unsqueeze(-1))
-        X_hat = theta @ Y
+        theta = self.compute_theta(Q + torch.diag_embed(D_add), D + D_add)
+        X_hat = theta.transpose(-2, -1) @ Y
         weights = 1 / torch.sum(theta**2, dim=-1, keepdim=True).clip(1/k, 1)
         return X_hat, weights
     
@@ -254,8 +254,8 @@ class NLRidge(nn.Module):
         k = Y.size(-2)
         D = torch.sum(V, dim=-1).clip(min=1e-5)
         Q = X @ X.transpose(-2, -1) + torch.diag_embed(D)
-        theta = self.compute_theta(Q, D.unsqueeze(-1))
-        X_hat = theta @ Y
+        theta = self.compute_theta(Q, D)
+        X_hat = theta.transpose(-2, -1) @ Y
         weights = 1 / torch.sum(theta**2, dim=-1, keepdim=True).clip(1/k, 1)
         return X_hat, weights
          
