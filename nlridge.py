@@ -231,8 +231,8 @@ class NLRidge(nn.Module):
         D = torch.sum(V, dim=-1).clip(min=1e-5)
         Q = Y @ Y.transpose(-2, -1)
         alpha = 0.05 # when alpha > 0 -> noisier risk which ensures well conditionning
-        D_add = alpha * D
-        theta = self.compute_theta(Q + torch.diag_embed(D_add), D + D_add)
+        Q.diagonal(dim1=-2, dim2=-1).add_(alpha * D)
+        theta = self.compute_theta(Q, (1 + alpha) * D)
         X_hat = theta.transpose(-2, -1) @ Y
         weights = 1 / torch.sum(theta**2, dim=-1, keepdim=True).clip(1/k, 1)
         return X_hat, weights
@@ -253,7 +253,8 @@ class NLRidge(nn.Module):
         """
         k = Y.size(-2)
         D = torch.sum(V, dim=-1).clip(min=1e-5)
-        Q = X @ X.transpose(-2, -1) + torch.diag_embed(D)
+        Q = X @ X.transpose(-2, -1)
+        Q.diagonal(dim1=-2, dim2=-1).add_(D) 
         theta = self.compute_theta(Q, D)
         X_hat = theta.transpose(-2, -1) @ Y
         weights = 1 / torch.sum(theta**2, dim=-1, keepdim=True).clip(1/k, 1)
