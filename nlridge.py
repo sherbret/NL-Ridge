@@ -31,7 +31,11 @@ class NLRidge(nn.Module):
         Returns:
             torch.LongTensor: Indices of shape (N, Href, Wref, k) of similar patches for each reference patch.
         """
-            
+        if w % 2 != 1:
+            raise ValueError(f"Invalid input: w ({w}) must be an odd integer.")
+        if (w-p+1)**2 < k:
+            raise ValueError(f"Invalid input: k ({k}) must be less than or equal to the number of overlapping patches per window, that is {(w-p+1)**2}.")
+        
         def block_matching_aux(input_x_pad, k, p, v, s):
             """
             Auxiliary function to perform block matching in a padded input tensor.
@@ -223,11 +227,12 @@ class NLRidge(nn.Module):
                 X_hat: Denoised patches, shape (N, Href, Wref, k, n).
                 weights: Patch weights, shape (N, Href, Wref, k, 1).
         """
-        _, _, _, k, n = Y.shape
-        D = torch.sum(V, dim=-1)
+        k = Y.size(-2)
+        D = torch.sum(V, dim=-1).clip(min=1e-5)
         Q = Y @ Y.transpose(-2, -1)
-        alpha = 0.25 * torch.mean(V, dim=(1, 2, 3, 4), keepdim=True) # alpha > 0 -> noisier risk which ensures positive definiteness
-        theta = self.compute_theta(Q + n * alpha * torch.eye(k, dtype=Y.dtype, device=Y.device), D.unsqueeze(-1) + n * alpha)
+        alpha = 0.05 # when alpha > 0 -> noisier risk which ensures well conditionning
+        D_add = alpha * D
+        theta = self.compute_theta(Q + torch.diag_embed(D_add), (D+D_add).unsqueeze(-1))
         X_hat = theta @ Y
         weights = 1 / torch.sum(theta**2, dim=-1, keepdim=True).clip(1/k, 1)
         return X_hat, weights
@@ -247,7 +252,7 @@ class NLRidge(nn.Module):
                 weights: Patch weights, shape (N, Href, Wref, k, 1).
         """
         k = Y.size(-2)
-        D = torch.sum(V, dim=-1)
+        D = torch.sum(V, dim=-1).clip(min=1e-5)
         Q = X @ X.transpose(-2, -1) + torch.diag_embed(D)
         theta = self.compute_theta(Q, D.unsqueeze(-1))
         X_hat = theta @ Y
