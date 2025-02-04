@@ -187,7 +187,8 @@ class NLRidge(nn.Module):
         if self.constraints == 'linear' or self.constraints == 'affine':
             Ik = torch.eye(k, dtype=Q.dtype, device=Q.device)
             if self.constraints == 'linear':
-                theta = Ik - torch.linalg.solve(Q, torch.diag_embed(D)) 
+                theta = Ik - torch.linalg.solve(Q, torch.diag_embed(D))
+                return theta # theta is symmetric
             else:
                 Qinv = torch.inverse(Q)
                 Qinv1 = torch.sum(Qinv, dim=-1, keepdim=True)
@@ -212,7 +213,7 @@ class NLRidge(nn.Module):
                         theta[..., j:j+1, :] -= alpha
         else:
             raise ValueError('constraints must be either linear, affine, conical or convex.')
-        return theta
+        return theta.transpose(-2, -1)
  
     def denoise1(self, Y, V):
         """
@@ -233,7 +234,7 @@ class NLRidge(nn.Module):
         alpha = 0.05 # when alpha > 0 -> noisier risk which ensures well conditionning
         Q.diagonal(dim1=-2, dim2=-1).add_(alpha * D)
         theta = self.compute_theta(Q, (1 + alpha) * D)
-        X_hat = theta.transpose(-2, -1) @ Y
+        X_hat = theta @ Y
         weights = 1 / torch.sum(theta**2, dim=-1, keepdim=True).clip(1/k, 1)
         return X_hat, weights
     
@@ -256,7 +257,7 @@ class NLRidge(nn.Module):
         Q = X @ X.transpose(-2, -1)
         Q.diagonal(dim1=-2, dim2=-1).add_(D) 
         theta = self.compute_theta(Q, D)
-        X_hat = theta.transpose(-2, -1) @ Y
+        X_hat = theta @ Y
         weights = 1 / torch.sum(theta**2, dim=-1, keepdim=True).clip(1/k, 1)
         return X_hat, weights
          
