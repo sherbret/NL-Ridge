@@ -188,7 +188,6 @@ class NLRidge(nn.Module):
             Ik = torch.eye(k, dtype=Q.dtype, device=Q.device)
             if self.constraints == 'linear':
                 theta = Ik - torch.linalg.solve(Q, torch.diag_embed(D))
-                return theta # theta is symmetric
             else:
                 Qinv = torch.inverse(Q)
                 Qinv1 = torch.sum(Qinv, dim=-1, keepdim=True)
