@@ -7,7 +7,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange, repeat
+from einops import repeat, rearrange 
 
 class NLRidge(nn.Module):
     """ A PyTorch module implementing NL-Ridge denoising algorithm. """
